@@ -8,8 +8,19 @@ fi
 ant clean
 echo "> CLEANED"
 
-ant -Ddislclass=Instrumentation
+ant -Ddislclass=profiler.Instrumentation
+
+processid=`jps | grep DiSLServer | cut -d " " -f1`
+
+if [ -n "$processid" ]; then
+  kill -9 "$processid"
+  echo "AAAAAA"
+fi
+
+
 ./startDiSLServer.sh
+
+sleep 2
 
 echo "> server started"
 echo "running ex $1"

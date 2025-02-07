@@ -3,3 +3,5 @@ build
 bin-profiler
 bin-app
 receiver-types-profiler.iml
+.DS_Store
+output

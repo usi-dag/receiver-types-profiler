@@ -19,7 +19,7 @@ public class Profiler{
     private final static long beginning;
 
     static {
-      beginning = System.nanoTime();
+      beginning = System.nanoTime()/1000;
     }
   
     private final static ConcurrentHashMap<String, ConcurrentLinkedDeque<CallInformation>> callSiteToVirtual= new ConcurrentHashMap<>();
@@ -40,17 +40,25 @@ public class Profiler{
     }
 
     public static void addVirtualCall(String callSite, Object obj){
-      long time = System.nanoTime();
-      int timeDiff = (int) (time - Profiler.beginning)/1000;
-      String className = obj.getClass().toString();
-      callSiteToVirtual.computeIfAbsent(callSite, (k) -> new ConcurrentLinkedDeque<>()).add(new CallInformation(className, timeDiff));
+      if(obj == null || callSite == null){
+        return;
+      }else{
+        long time = System.nanoTime();
+        int timeDiff = (int) (time - Profiler.beginning)/1000;
+        String targetClassName = obj.getClass().getName();
+        callSiteToVirtual.computeIfAbsent(callSite, (k) -> new ConcurrentLinkedDeque<>()).add(new CallInformation(targetClassName, timeDiff));
+        
+      }
     }
     
     public static void addInterfaceCall(String callSite, Object obj){
+      if(obj == null || callSite == null){
+        return;
+      }
       long time = System.nanoTime();
       int timeDiff = (int) (time - Profiler.beginning)/1000;
-      String className = obj.getClass().getName();
-      callSiteToInterface.computeIfAbsent(callSite, (k) -> new ConcurrentLinkedDeque<>()).add(new CallInformation(className, timeDiff));
+      String targetClassName = obj.getClass().getName();
+      callSiteToInterface.computeIfAbsent(callSite, (k) -> new ConcurrentLinkedDeque<>()).add(new CallInformation(targetClassName, timeDiff));
     }
 
     private static void toJson(ConcurrentHashMap<String, ConcurrentLinkedDeque<CallInformation>> callSiteToInfo, String suffix){

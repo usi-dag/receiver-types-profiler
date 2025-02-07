@@ -14,6 +14,9 @@ public class Main{
   }
    public static void m(){
     var a = new A();
+    a.m2(0, 0);
+    a.m();
+    // if(true){return;}
     var b = new B();
     var c = new C();
     var d = new D();
@@ -57,6 +60,10 @@ interface TestInterface {
 class A {
   public void m(){
     System.out.println("I am A");
+  }
+
+  public void m2(int a, long b){
+    System.out.println("aaaa");
   }
 }
 

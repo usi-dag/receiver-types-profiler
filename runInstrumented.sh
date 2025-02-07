@@ -30,3 +30,4 @@ if [ "$JAVA_VERSION" -gt "8" ]; then
 fi
 
 $JAVA_HOME/bin/java -agentpath:lib/$ARCH/libdislagent$AGENT_EXT $AGENT_FLAGS -Xbootclasspath/a:lib/disl-bypass.jar:build/profiler.jar -cp build/app.jar -noverify $*
+# $JAVA_HOME/bin/java -agentpath:lib/$ARCH/libdislagent$AGENT_EXT $AGENT_FLAGS -Xbootclasspath/a:lib/disl-bypass.jar:build/profiler.jar -jar dacapo-23.11-MR2-chopin/dacapo-23.11-MR2-chopin.jar -noverify
