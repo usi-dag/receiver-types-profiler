@@ -19,7 +19,7 @@ public class Instrumentation {
    @ThreadLocal
    static boolean isVirtual = false;
 
-    @Before(marker=BytecodeMarker.class, args="invokevirtual", scope="Main.*")
+    @Before(marker=BytecodeMarker.class, args="invokevirtual", guard=Guard.class)
     static void beforeEveryInvokeVirtual(DynamicContext dc, InstructionStaticContext isc, MethodStaticContext mc, CustomContext cc){
       String cs = isc.getIndex() + " " + mc.getUniqueInternalName();
       callSite = cs;
@@ -27,12 +27,13 @@ public class Instrumentation {
       System.out.println("Callsite is: " + callSite);
     }
 
-   @Before(marker=BodyMarker.class, scope="*")
+   @Before(marker=BodyMarker.class, scope="*", guard=Guard.class)
    static void beforeEveryMethod(DynamicContext dc, MethodStaticContext mc){
+      System.out.println(mc.getUniqueInternalName());
       if(callSite == ""){
          return;
       }else{
-         System.out.println("IDK " + mc.getUniqueInternalName());
+         // System.out.println("IDK " + mc.getUniqueInternalName());
          Object obj = dc.getThis();
          if(isVirtual){
             Profiler.addVirtualCall(callSite, obj);
@@ -43,7 +44,7 @@ public class Instrumentation {
       }
    }
 
-    @Before(marker=BytecodeMarker.class, args="invokeinterface", scope="Main.*")
+    @Before(marker=BytecodeMarker.class, args="invokeinterface", guard=Guard.class)
     static void beforeInvokeInterface(InstructionStaticContext isc, MethodStaticContext mc, CustomContext cc){
       String cs = isc.getIndex() + " " + mc.getUniqueInternalName();
       callSite = cs;
@@ -52,7 +53,7 @@ public class Instrumentation {
     }
 
 
-    // @Before(marker=BytecodeMarker.class, args="invokespecial", scope="Main.*")
+    // @Before(marker=BytecodeMarker.class, args="invokespecial", guard=Guard.class)
     // static void beforeSpecial(InstructionStaticContext isc, MethodStaticContext mc, DynamicContext dc){
     //    System.out.println("Instrumented special call: " + isc.getIndex() + " " + mc.getUniqueInternalName()); 
 

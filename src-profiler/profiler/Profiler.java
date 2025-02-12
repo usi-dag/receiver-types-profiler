@@ -2,6 +2,7 @@ package profiler;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.lang.foreign.SequenceLayout;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.Date;
@@ -27,6 +28,7 @@ public class Profiler{
 
     static {
       Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+        System.out.println("ShutdownHook");
         callSiteToVirtual.forEach((k,v) -> {
           // System.out.println("Call site: "+ k + " " + v.toString());
         });
@@ -85,6 +87,7 @@ public class Profiler{
             try{
               outputFile.createNewFile();
             }catch (Exception e){
+              System.err.println(e.getMessage());
             }
             try{
               Files.writeString(outputFile.toPath(), "{\n", StandardOpenOption.APPEND);
@@ -92,7 +95,7 @@ public class Profiler{
               Files.writeString(outputFile.toPath(), result, StandardOpenOption.APPEND);
               Files.writeString(outputFile.toPath(), "}", StandardOpenOption.APPEND);
             }catch(Exception e){
-              
+              System.out.println(e.getMessage());
             }
     }
 
