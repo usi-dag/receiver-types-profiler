@@ -1,2 +1,4 @@
 jdk.internal.module.*.*
 java.lang.Object.*
+java.lang.reflect.*.*
+org.slf4j.LoggerFactory.*

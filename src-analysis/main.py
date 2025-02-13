@@ -29,7 +29,7 @@ def main() -> None:
     input_file: TextIO = open(args.input, "r")
     content: Dict[str, int | Dict[str, List[int]]] = json.load(input_file)
     beginning: int = content.get("beginning")
-    callsite_to_info: Dict[str, Dict[str, List[int]]] = {k: v for k,v in content.items() if k != "beginning"}
+    callsite_to_info: Dict[str, Dict[str, List[int]]] = {k: v for k, v in content.items() if k != "beginning"}
     for cs, info in callsite_to_info.items():
         percentage_windows = analyse_callsite(cs, info, beginning, args.delta)
         changes = check_percentage_changes(percentage_windows)
@@ -51,8 +51,8 @@ def output_results(cs: str, changes: List[ReceiverRatioChange], inversions: List
     for change in changes:
         to_print.append(f"{indent}{change.class_name} - {change.window} - {change.diff}")
     to_print.append("Inversions:")
-    for inversion in inversions:
-        to_print.append(f"{indent}{inversion.class_name1} - {inversion.class_name2} - {inversion.window1} - {inversion.window2}")
+    for inv in inversions:
+        to_print.append(f"{indent}{inv.class_name1} - {inv.class_name2} - {inv.window1} - {inv.window2}")
     result_file: Path = result.joinpath("result.txt")
     result_file.touch(exist_ok=True)
     with result_file.open("a") as f:
@@ -62,17 +62,14 @@ def output_results(cs: str, changes: List[ReceiverRatioChange], inversions: List
     return
 
 
-    
-
-
-def analyse_callsite(call_site: str, info: Dict[AnyStr, List[int]], beginning: int, time_frame: int) -> List[Dict[AnyStr, float]]:
+def analyse_callsite(_call_site: str, info: Dict[AnyStr, List[int]], _beginning: int, time_frame: int) -> List[Dict[AnyStr, float]]:
     window_start: int = min(reduce(lambda a, b: a+b, info.values(), []))
     end: int = max(reduce(lambda a, b: a+b, info.values(), []))
     windows: List[Dict[AnyStr, List[int]]] = []
     while True:
         current_window: Dict[AnyStr, List[int]] = {}
         for class_name, timestamps in info.items():
-            current_window[class_name] = [e for e in timestamps if e >= window_start and e < window_start + time_frame]
+            current_window[class_name] = [e for e in timestamps if window_start <= e < window_start + time_frame]
         windows.append(current_window)
         window_start += time_frame
         if window_start > end:
@@ -115,11 +112,9 @@ def check_inversions(p_windows: List[Dict[AnyStr, float]]) -> List[Inversion]:
             val_key1_window2 = w2.get(k1, 0)
             val_key2_window2 = w2.get(k2, 0)
             if sign(val_key1_window1-val_key2_window1) != sign(val_key1_window2-val_key2_window2):
-               inversions.append(Inversion(window1=i, window2=i+1, class_name1=k1, class_name2=k2))
+                inversions.append(Inversion(window1=i, window2=i+1, class_name1=k1, class_name2=k2))
     return inversions
 
 
-
-
 if __name__ == "__main__":
-   main() 
+    main()

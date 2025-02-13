@@ -14,42 +14,44 @@ import ch.usi.dag.disl.annotation.ThreadLocal;
 
 public class Instrumentation {
    @ThreadLocal
-   static String callSite = ""; 
+   static long callsite = -1; 
 
    @ThreadLocal
    static boolean isVirtual = false;
 
-    @Before(marker=BytecodeMarker.class, args="invokevirtual", guard=Guard.class)
-    static void beforeEveryInvokeVirtual(DynamicContext dc, InstructionStaticContext isc, MethodStaticContext mc, CustomContext cc){
-      String cs = isc.getIndex() + " " + mc.getUniqueInternalName();
-      callSite = cs;
+    @Before(marker=BytecodeMarker.class, args="invokevirtual", scope="Main.*")
+    static void beforeEveryInvokeVirtual(CustomContext cc){
+      long id = cc.getTargetId();
+      callsite = id;
+      System.out.println("Check here: " +id);
       isVirtual = true;
-      System.out.println("Callsite is: " + callSite);
+      // System.out.println("Callsite is: " + callSite);
     }
 
    @Before(marker=BodyMarker.class, scope="*", guard=Guard.class)
    static void beforeEveryMethod(DynamicContext dc, MethodStaticContext mc){
-      System.out.println(mc.getUniqueInternalName());
-      if(callSite == ""){
+      // System.out.println(mc.getUniqueInternalName());
+      if(callsite == -1){
          return;
       }else{
          // System.out.println("IDK " + mc.getUniqueInternalName());
          Object obj = dc.getThis();
          if(isVirtual){
-            Profiler.addVirtualCall(callSite, obj);
+            // TODO: change to pass the obj class name
+            Profiler.addVirtualCall(callsite, obj);
          }else{
-            Profiler.addInterfaceCall(callSite, obj);
+            Profiler.addInterfaceCall(callsite, obj);
          }
-         callSite = "";
+         callsite = -1;
       }
    }
 
-    @Before(marker=BytecodeMarker.class, args="invokeinterface", guard=Guard.class)
-    static void beforeInvokeInterface(InstructionStaticContext isc, MethodStaticContext mc, CustomContext cc){
-      String cs = isc.getIndex() + " " + mc.getUniqueInternalName();
-      callSite = cs;
+    @Before(marker=BytecodeMarker.class, args="invokeinterface", scope="Main.*")
+    static void beforeInvokeInterface(CustomContext cc){
+      long id = cc.getTargetId();
+      callsite = id;
       isVirtual = false;
-      System.out.println("Callsite is: " + callSite);
+      // System.out.println("Callsite is: " + callSite);
     }
 
 
