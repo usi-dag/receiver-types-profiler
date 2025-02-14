@@ -19,19 +19,21 @@ public class Instrumentation {
    @ThreadLocal
    static boolean isVirtual = false;
 
-    @Before(marker=BytecodeMarker.class, args="invokevirtual", scope="Main.*")
-    static void beforeEveryInvokeVirtual(CustomContext cc){
+    @Before(marker=BytecodeMarker.class, args="invokevirtual", scope="*")
+    static void beforeEveryInvokeVirtual(CustomContext cc, MethodStaticContext mc){
       long id = cc.getTargetId();
       callsite = id;
-      System.out.println("Check here: " +id);
+      // System.out.println("Check here: " +id);
       isVirtual = true;
+      // System.out.println("VIRTUAL: "+mc.getUniqueInternalName());
       // System.out.println("Callsite is: " + callSite);
     }
 
    @Before(marker=BodyMarker.class, scope="*", guard=Guard.class)
    static void beforeEveryMethod(DynamicContext dc, MethodStaticContext mc){
-      // System.out.println(mc.getUniqueInternalName());
       if(callsite == -1){
+         // System.out.println("UNIQUE NAME IS" + mc.getUniqueInternalName());
+         // var a = 1/0;
          return;
       }else{
          // System.out.println("IDK " + mc.getUniqueInternalName());
@@ -46,18 +48,29 @@ public class Instrumentation {
       }
    }
 
-    @Before(marker=BytecodeMarker.class, args="invokeinterface", scope="Main.*")
-    static void beforeInvokeInterface(CustomContext cc){
+    @Before(marker=BytecodeMarker.class, args="invokeinterface", scope="*")
+    static void beforeInvokeInterface(CustomContext cc, MethodStaticContext mc){
       long id = cc.getTargetId();
       callsite = id;
       isVirtual = false;
+      // System.out.println("INTERFACE: " + mc.getUniqueInternalName());
       // System.out.println("Callsite is: " + callSite);
     }
 
 
     // @Before(marker=BytecodeMarker.class, args="invokespecial", guard=Guard.class)
     // static void beforeSpecial(InstructionStaticContext isc, MethodStaticContext mc, DynamicContext dc){
-    //    System.out.println("Instrumented special call: " + isc.getIndex() + " " + mc.getUniqueInternalName()); 
-
+    //    System.out.println("SPECIAL " + isc.getIndex() + " " + mc.getUniqueInternalName()); 
     // }
+
+    // @Before(marker=BytecodeMarker.class, args="invokedynamic", guard=Guard.class)
+    // static void beforeDynamic(InstructionStaticContext isc, MethodStaticContext mc, DynamicContext dc){
+    //    System.out.println("DYMAMIC " + isc.getIndex() + " " + mc.getUniqueInternalName()); 
+    // }
+
+    // @Before(marker=BytecodeMarker.class, args="invokestatic", guard=Guard.class)
+    // static void beforeStatic(InstructionStaticContext isc, MethodStaticContext mc, DynamicContext dc){
+    //    System.out.println("STATIC " + isc.getIndex() + " " + mc.getUniqueInternalName()); 
+    // }
+
 }

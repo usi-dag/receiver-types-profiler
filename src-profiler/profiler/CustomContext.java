@@ -39,8 +39,8 @@ public class CustomContext extends InstructionStaticContext{
 
     static {
       Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-         System.out.println("Cs is: ");
-         System.out.println(csToId);
+         // System.out.println("Cs is: ");
+         // System.out.println(csToId);
          String baseDir = new File("").getAbsolutePath();
             
          File outputDir = new File("output/");
