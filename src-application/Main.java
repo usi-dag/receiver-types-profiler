@@ -16,6 +16,7 @@ public class Main{
     var a = new A();
     a.m2(0, 0);
     a.m();
+    A.staticMethod();
     // if(true){return;}
     var b = new B();
     var c = new C();
@@ -64,6 +65,10 @@ class A {
 
   public void m2(int a, long b){
     System.out.println("aaaa");
+  }
+
+  public static void staticMethod(){
+    System.out.println("STATIC");
   }
 }
 
