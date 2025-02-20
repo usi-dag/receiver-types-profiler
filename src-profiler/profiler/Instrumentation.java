@@ -42,10 +42,10 @@ public class Instrumentation {
          // 8 is the size of a long
          addr = Profiler.getNewAddress();
       }
-      if(i == 3*128*1024){
+      if(i == 3*512*1024){
         // buffer is full flush it
-        System.out.println("buffer is full");
-        System.out.println(mc.getUniqueInternalName());
+        // System.out.println("buffer is full");
+        // System.out.println(mc.getUniqueInternalName());
         Profiler.saveBufferInformation(addr, i);
         i = 0;
       }

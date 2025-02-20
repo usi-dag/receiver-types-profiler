@@ -81,13 +81,16 @@ public class Profiler{
         System.err.println(e.getMessage());
       }
       try{
+        StringBuilder toPrint = new StringBuilder();
         for(int i = 0; i< maxIndex; i++){
           long cs = Profiler.getUnsafeInstance().getLong(addr+i*8);
           long cnid = Profiler.getUnsafeInstance().getLong(addr+(i+1)*8);
           long tdiff = Profiler.getUnsafeInstance().getLong(addr+(i+2)*8);
-          Files.writeString(outputFile.toPath(), cs + " " + cnid + " " + tdiff + "\n", StandardOpenOption.APPEND);
+          toPrint.append(cs + " " + cnid + " " + tdiff + "\n");
+          // Files.writeString(outputFile.toPath(), cs + " " + cnid + " " + tdiff + "\n", StandardOpenOption.APPEND);
           
         }
+        Files.writeString(outputFile.toPath(), toPrint.toString(), StandardOpenOption.APPEND);
       }catch(IOException e){
         System.err.println(e.getMessage());
       }
@@ -117,7 +120,7 @@ public class Profiler{
     }
 
     public static long getNewAddress(){
-      return Profiler.getUnsafeInstance().allocateMemory(3*128*1024*8);
+      return Profiler.getUnsafeInstance().allocateMemory(3*512*1024*8);
     }
   
     public static long getClassMapping(Object obj){
