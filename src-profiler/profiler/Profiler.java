@@ -1,8 +1,11 @@
 package profiler;
 
+import sun.misc.Unsafe;
+
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
@@ -20,6 +23,7 @@ import java.util.stream.LongStream;
 // import it.unimi.dsi.fastutil.longs.Long2ReferenceMap;
 // import it.unimi.dsi.fastutil.longs.Long2ReferenceArrayMap;
 import java.util.stream.Stream;
+import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class Profiler{
@@ -28,6 +32,7 @@ public class Profiler{
     private final static long beginning;
     private static long id = 0;
     private final static ConcurrentHashMap<String, Long> classNameToId = new ConcurrentHashMap<>();
+    private static AtomicInteger nextAvailableFileNumber = new AtomicInteger();
 
     static {
       beginning = System.nanoTime();
@@ -59,6 +64,61 @@ public class Profiler{
         // }
       }));
     }
+
+    public static void saveBufferInformation(long addr, int maxIndex){
+      String baseDir = new File("").getAbsolutePath();
+            
+      File outputDir = new File("output/");
+      if(!outputDir.isDirectory()){
+        outputDir.mkdir();
+      }
+      int fileNumber = nextAvailableFileNumber.getAndIncrement();
+      String outputFileName = "partial_"+fileNumber + ".txt";
+      File outputFile = new File(outputDir, outputFileName);
+      try{
+        outputFile.createNewFile();
+      }catch (IOException e){
+        System.err.println(e.getMessage());
+      }
+      try{
+        for(int i = 0; i< maxIndex; i++){
+          long cs = Profiler.getUnsafeInstance().getLong(addr+i*8);
+          long cnid = Profiler.getUnsafeInstance().getLong(addr+(i+1)*8);
+          long tdiff = Profiler.getUnsafeInstance().getLong(addr+(i+2)*8);
+          Files.writeString(outputFile.toPath(), cs + " " + cnid + " " + tdiff + "\n", StandardOpenOption.APPEND);
+          
+        }
+      }catch(IOException e){
+        System.err.println(e.getMessage());
+      }
+      
+    }
+
+    public static void putBytes(long addr, int index, long callsite, Object obj){
+      long time = System.nanoTime();
+      long timeDiff = (time - Profiler.beginning)/1000;
+      String targetClassName = obj.getClass().getName();
+      long tid = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);
+      
+      Profiler.getUnsafeInstance().putLong(addr + index*8, callsite);
+      Profiler.getUnsafeInstance().putLong(addr + (index+1)*8, tid);
+      Profiler.getUnsafeInstance().putLong(addr + (index+2)*8, timeDiff);
+    }
+
+    public static Unsafe getUnsafeInstance() {
+        try {
+            Field f = Unsafe.class.getDeclaredField("theUnsafe");
+            f.setAccessible(true);
+            Unsafe u = (Unsafe) f.get(null);
+            return u;
+        } catch (IllegalAccessException | NoSuchFieldException e) {
+            return  null;
+        }
+    }
+
+    public static long getNewAddress(){
+      return Profiler.getUnsafeInstance().allocateMemory(3*128*1024*8);
+    }
   
     public static long getClassMapping(Object obj){
       return classNameToId.computeIfAbsent(obj.getClass().getName(), k -> id++);
@@ -78,7 +138,7 @@ public class Profiler{
         // test.get(callsite).add(tid);
         // test.get(callsite).add(timeDiff);
         callSiteToVirtual.computeIfAbsent(callsite, (k) -> new ConcurrentLinkedDeque<>()).add(tid);
-        // callSiteToVirtual.computeIfAbsent(callsite, (k) -> new ConcurrentLinkedDeque<>()).add(timeDiff);
+        callSiteToVirtual.computeIfAbsent(callsite, (k) -> new ConcurrentLinkedDeque<>()).add(timeDiff);
         
       // }
     }
