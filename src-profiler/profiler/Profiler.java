@@ -24,6 +24,7 @@ import java.util.stream.LongStream;
 // import it.unimi.dsi.fastutil.longs.Long2ReferenceArrayMap;
 import java.util.stream.Stream;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.io.DataOutputStream;
 
 
 public class Profiler{
@@ -81,23 +82,29 @@ public class Profiler{
         System.err.println(e.getMessage());
       }
       try{
+        DataOutputStream dos = new DataOutputStream(new FileOutputStream(outputFile));
         StringBuilder toPrint = new StringBuilder();
-        for(int i = 0; i< maxIndex; i++){
+        int i = 0;
+        for(i = 0; i< maxIndex; i++){
           long cs = Profiler.getUnsafeInstance().getLong(addr+i*8);
           long cnid = Profiler.getUnsafeInstance().getLong(addr+(i+1)*8);
-          long tdiff = Profiler.getUnsafeInstance().getLong(addr+(i+2)*8);
-          toPrint.append(cs + " " + cnid + " " + tdiff + "\n");
-          // Files.writeString(outputFile.toPath(), cs + " " + cnid + " " + tdiff + "\n", StandardOpenOption.APPEND);
-          
+          long tdiff = Profiler.getUnsafeInstance().getLong(addr+(i+2)*8);          
+
+          dos.writeLong(cs);
+          dos.writeLong(cnid);
+          dos.writeLong(tdiff);
         }
-        Files.writeString(outputFile.toPath(), toPrint.toString(), StandardOpenOption.APPEND);
+        // Files.writeString(outputFile.toPath(), toPrint.toString(), StandardOpenOption.APPEND);
       }catch(IOException e){
         System.err.println(e.getMessage());
       }
       
     }
 
-    public static void putBytes(long addr, int index, long callsite, Object obj){
+    public static int putBytes(long addr, int index, long callsite, Object obj){
+      if(callsite == -1){
+        return index;
+      }
       long time = System.nanoTime();
       long timeDiff = (time - Profiler.beginning)/1000;
       String targetClassName = obj.getClass().getName();
@@ -106,6 +113,7 @@ public class Profiler{
       Profiler.getUnsafeInstance().putLong(addr + index*8, callsite);
       Profiler.getUnsafeInstance().putLong(addr + (index+1)*8, tid);
       Profiler.getUnsafeInstance().putLong(addr + (index+2)*8, timeDiff);
+      return index+3;
     }
 
     public static Unsafe getUnsafeInstance() {

@@ -49,8 +49,7 @@ public class Instrumentation {
         Profiler.saveBufferInformation(addr, i);
         i = 0;
       }
-      Profiler.putBytes(addr, i, callsite, obj);
-      i+=3;
+      i = Profiler.putBytes(addr, i, callsite, obj);
       // Profiler.addVirtualCall(callsite, obj);
       callsite = -1;
    }
