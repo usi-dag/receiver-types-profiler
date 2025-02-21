@@ -29,5 +29,5 @@ if [ "$JAVA_VERSION" -gt "8" ]; then
   AGENT_FLAGS="$AGENT_FLAGS --patch-module java.base=lib/disl-bypass.jar --add-exports java.base/ch.usi.dag.disl.dynamicbypass=ALL-UNNAMED"
 fi
 
-$JAVA_HOME/bin/java -agentpath:lib/$ARCH/libdislagent$AGENT_EXT $AGENT_FLAGS -Xbootclasspath/a:lib/disl-bypass.jar:build/profiler.jar -cp build/app.jar -noverify $*
+$JAVA_HOME/bin/java -agentpath:lib/$ARCH/libdislagent$AGENT_EXT $AGENT_FLAGS -Xbootclasspath/a:lib/disl-bypass.jar:build/profiler.jar -cp build/app.jar -noverify -Xms5g -Xmx5g $*
 # $JAVA_HOME/bin/java -agentpath:lib/$ARCH/libdislagent$AGENT_EXT $AGENT_FLAGS -Xbootclasspath/a:lib/disl-bypass.jar:build/profiler.jar -jar dacapo-23.11-MR2-chopin/dacapo-23.11-MR2-chopin.jar -noverify
