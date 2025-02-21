@@ -2,6 +2,9 @@ package profiler;
 
 
 import ch.usi.dag.disl.annotation.Before;
+
+import java.nio.MappedByteBuffer;
+
 import ch.usi.dag.disl.annotation.After;
 import ch.usi.dag.disl.marker.BodyMarker;
 import ch.usi.dag.disl.marker.BasicBlockMarker;
@@ -25,6 +28,9 @@ public class Instrumentation {
    @ThreadLocal
    static int i = 0;
 
+   @ThreadLocal
+   static MappedByteBuffer mb;
+
    @Before(marker=BytecodeMarker.class, args="invokevirtual", scope="*")
    static void beforeEveryInvokeVirtual(CustomContext cc, MethodStaticContext mc){
    long id = cc.getTargetId();
@@ -38,19 +44,28 @@ public class Instrumentation {
    @Before(marker=BodyMarker.class, scope="*", guard=Guard.class)
    static void beforeEveryMethod(DynamicContext dc, MethodStaticContext mc){
       Object obj = dc.getThis();
-      if(addr == 0){
-         // 8 is the size of a long
-         addr = Profiler.getNewAddress();
+      // if(addr == 0){
+      //    // 8 is the size of a long
+      //    addr = Profiler.getNewAddress();
+      // }
+      // if(i == 3*512*1024){
+      //   // buffer is full flush it
+      //   // System.out.println("buffer is full");
+      //   // System.out.println(mc.getUniqueInternalName());
+      //   Profiler.saveBufferInformation(addr, i);
+      //   i = 0;
+      // }
+      // i = Profiler.putBytes(addr, i, callsite, obj);
+      if(mb == null){
+        mb = Profiler.getMemoryMappedFile();
       }
-      if(i == 3*512*1024){
-        // buffer is full flush it
-        // System.out.println("buffer is full");
-        // System.out.println(mc.getUniqueInternalName());
-        Profiler.saveBufferInformation(addr, i);
+      if(i == Profiler.length){
+        // file is full
+        mb = Profiler.getMemoryMappedFile();
         i = 0;
       }
-      i = Profiler.putBytes(addr, i, callsite, obj);
-      // Profiler.addVirtualCall(callsite, obj);
+      i = Profiler.putInfo(mb, i, callsite, obj);
+
       callsite = -1;
    }
 

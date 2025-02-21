@@ -3,9 +3,13 @@ package profiler;
 import sun.misc.Unsafe;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.lang.reflect.Field;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
@@ -32,6 +36,7 @@ public class Profiler{
 
     private final static long beginning;
     private static long id = 0;
+    public final static long length = 3*512*1024;
     private final static ConcurrentHashMap<String, Long> classNameToId = new ConcurrentHashMap<>();
     private static AtomicInteger nextAvailableFileNumber = new AtomicInteger();
 
@@ -43,7 +48,19 @@ public class Profiler{
     private final static ConcurrentHashMap<Long, ConcurrentLinkedDeque<Long>> callSiteToVirtual= new ConcurrentHashMap<>();
     private final static ConcurrentHashMap<Long, ConcurrentLinkedDeque<Long>> callSiteToInterface= new ConcurrentHashMap<>();
 
+
+    private final static File outputDir;
+
     static {
+     // ensure output folder exist
+     String baseDir = new File("").getAbsolutePath();
+            
+      outputDir = new File("output/");
+      if(!outputDir.isDirectory()){
+        outputDir.mkdir();
+      }
+
+      // shutdownhook
       Runtime.getRuntime().addShutdownHook(new Thread(() -> {
         System.out.println("ShutdownHook");
         Profiler.saveClassNameMapping();
@@ -129,6 +146,38 @@ public class Profiler{
 
     public static long getNewAddress(){
       return Profiler.getUnsafeInstance().allocateMemory(3*512*1024*8);
+    }
+
+    // memory mapped file
+    public static MappedByteBuffer getMemoryMappedFile(){
+      int fileNumber = nextAvailableFileNumber.getAndIncrement();
+      String outputFileName = "partial_"+fileNumber + ".txt";
+      File outputFile = new File(outputDir, outputFileName);
+      
+      try{
+        RandomAccessFile ra = new RandomAccessFile(outputFile, "rw");
+        return ra.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, length*8);
+      } catch(IOException e){
+        System.err.println(e.getMessage());
+      }
+      return null;
+    }
+
+    public static int putInfo(MappedByteBuffer mb, int index, long callsite, Object obj){
+      if(callsite == -1){
+        return index;
+      }
+      long time = System.nanoTime();
+      long timeDiff = (time - Profiler.beginning)/1000;
+      String targetClassName = obj.getClass().getName();
+      long tid = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);
+
+      mb.putLong(callsite);
+      mb.putLong(tid);
+      mb.putLong(timeDiff);
+      
+      return index+3;
+      
     }
   
     public static long getClassMapping(Object obj){
