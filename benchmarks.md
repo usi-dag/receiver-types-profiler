@@ -1,0 +1,51 @@
+# DaCapo
+- [x] avrora 17G
+- [x] batik 4G
+- [-] biojava not enough space
+- [] cassandra time out
+- [x] eclipse 20G
+- [x] fop 4G
+- [-] graphchi not enough space
+- [-] h2 not enough space, slow
+- [] h2o requires version <= 17
+- [x] jme 1G
+- [x] jython 38G
+- [x] kafka 12G
+- [x] luindex 17G
+- [-] lusearch not enough space
+- [x] pmd 33G
+- [-] spring not enough space
+- [-] sunflow not enough space
+- [x] tomcat 30G
+- [] tradebeans
+- [] tradesoap
+- [x] xalan 36G
+- [-] zxing not enough space
+
+# Renaissance
+- [x] scrabble
+- [-] page-rank
+- [x] future-genetic
+- [-] akka-uct instrumentation cause time out 
+- [-] movie-lens
+- [-] scala-doku
+- [x] chi-square 40G
+- [-] fj-kmeans
+- [x] rx-scrabble 4G
+- [-] db-shootout
+- [-] neo4j-analytics
+- [x] finagle-http 30G
+- [-] reactors
+- [x] dec-tree 22G
+- [x] scala-stm-bench7 15G
+- [-] naive-bayes
+- [-] als
+- [x] par-mnemonics 30G
+- [x] scala-kmeans 12G
+- [x] philosophers 30G
+- [x] log-regression 27G
+- [-] gauss-mix
+- [x] mnemonics 30G
+- [x] dotty 7G
+- [-] finagle-chirper
+

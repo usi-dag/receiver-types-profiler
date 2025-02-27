@@ -32,7 +32,7 @@ public class Profiler{
      // ensure output folder exist
       outputDir = new File("output/");
       if(!outputDir.isDirectory()){
-        var _ = outputDir.mkdir();
+        var res = outputDir.mkdir();
       }
 
       // shutdownhook
@@ -65,11 +65,21 @@ public class Profiler{
       long time = System.nanoTime();
       long timeDiff = (time - Profiler.beginning)/1000;
       String targetClassName = obj.getClass().getName();
-      long tid = classNameToId.computeIfAbsent(targetClassName, (_) -> id++);
+      long tid = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);
 
-      mb.putLong(callsite);
-      mb.putLong(tid);
+      // mb.putLong(callsite);
+      // mb.putLong(tid);
+      // mb.putLong(timeDiff);
+      mb.putInt((int) (callsite & 0xFFFFFFFFL));
+      mb.putInt((int) (tid & 0xFFFFFFFFL));
       mb.putLong(timeDiff);
+      // long a = 1l;
+      // long b = 2l;
+      // long c = 3l;
+
+      // mb.putInt((int) (a & 0xFFFFFFFFL));
+      // mb.putInt((int) (b & 0xFFFFFFFFL));
+      // mb.putInt((int) (c & 0xFFFFFFFFL));
 
       return index+3;
 
@@ -82,7 +92,7 @@ public class Profiler{
       String outputFileName = "classNameMapping_" +  formattedDate + ".csv";
       File outputFile = new File(outputDir, outputFileName);
       try{
-        var _ = outputFile.createNewFile();
+        var res = outputFile.createNewFile();
       }catch(IOException e){
         System.err.println(e.getMessage());
       }
@@ -103,7 +113,7 @@ public class Profiler{
             String outputFileName = "start_time_" + formattedDate + ".txt";
             File outputFile = new File(outputDir, outputFileName);
             try{
-              var _ = outputFile.createNewFile();
+              var res = outputFile.createNewFile();
             }catch (IOException e){
               System.err.println(e.getMessage());
             }

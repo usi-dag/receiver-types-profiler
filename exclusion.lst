@@ -2,3 +2,7 @@ jdk.internal.module.*.*
 java.lang.Object.*
 java.lang.reflect.*.*
 org.slf4j.LoggerFactory.*
+org.jboss.logmanager.*.*
+org.wildfly.common.*.*
+org.jboss.as.jmx.*.*
+org.wildfly.security.WildFlyElytronBaseProvider.*
