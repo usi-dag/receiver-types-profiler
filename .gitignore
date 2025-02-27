@@ -6,3 +6,5 @@ receiver-types-profiler.iml
 .DS_Store
 output
 result
+harness*
+launcher*

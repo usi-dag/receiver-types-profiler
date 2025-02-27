@@ -1,9 +1,11 @@
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 import json
+import struct
 from typing import TextIO, Dict, AnyStr, List
 from functools import reduce
 from dataclasses import dataclass
+from collections import defaultdict
 
 
 @dataclass
@@ -21,21 +23,6 @@ class Inversion:
     class_name2: int
 
 
-def main() -> None:
-    parser: ArgumentParser = ArgumentParser()
-    parser.add_argument("--input", type=Path, default=Path("/Users/jacobsalvi/Master/MasterThesis/receiver-types-profiler/output/output_virtual_07-02-25-09-49-12.json"))
-    parser.add_argument("--delta", type=int, default=1000, help="Timestamp in microseconds")
-    args: Namespace = parser.parse_args()
-    input_file: TextIO = open(args.input, "r")
-    content: Dict[str, int | Dict[str, List[int]]] = json.load(input_file)
-    beginning: int = content.get("beginning")
-    callsite_to_info: Dict[str, Dict[str, List[int]]] = {k: v for k, v in content.items() if k != "beginning"}
-    for cs, info in callsite_to_info.items():
-        percentage_windows = analyse_callsite(cs, info, beginning, args.delta)
-        changes = check_percentage_changes(percentage_windows)
-        inversions = check_inversions(percentage_windows)
-        output_results(cs, changes, inversions)
-    return    
 
 
 def get_output_folder() -> Path:
@@ -116,5 +103,93 @@ def check_inversions(p_windows: List[Dict[AnyStr, float]]) -> List[Inversion]:
     return inversions
 
 
+def read_binary(input_file: Path) -> List[int]:
+    info: List[int] = []
+    with open(input_file, "rb") as f:
+        while True:
+            chunk = f.read(16)
+            if len(chunk) != 16 or not chunk:
+                break
+            val = struct.unpack(">IIq", chunk)
+            if all(e == 0 for e in val):
+                break 
+            info.extend(val)
+    return info
+
+
+def parse_mapping_csv(class_name_file: Path) -> Dict[int, str]:
+    with open(class_name_file, "r") as f:
+        lines = f.readlines()
+        to_return = {line.split(",")[0]: line.split(",")[1] for line in lines}
+        return {int(v.strip()): k for k,v in to_return.items()}
+
+
+def chunker(iterable, chunksize):
+    return zip(*[iter(iterable)] * chunksize)
+
+
+def reconstruct_callsite_info(info: List[int], id_to_callsite: Dict[int, str],
+    id_to_classname: Dict[int, str]) -> Dict[str, Dict[str, List[int]]]:
+    callsite_info = defaultdict(lambda: defaultdict(list))
+    for callsite_id, class_id, timediff in chunker(info, 3):
+        callsite = id_to_callsite.get(callsite_id)
+        class_name = id_to_classname.get(class_id)
+        callsite_info[callsite][class_name].append(timediff)
+    return callsite_info
+        
+    
+
+def main() -> None:
+    parser: ArgumentParser = ArgumentParser()
+    parser.add_argument("--input-folder", dest="input_folder", type=Path, default=Path("./output/"))
+    parser.add_argument("--delta", type=int, default=1000, help="Timestamp in microseconds")
+    args: Namespace = parser.parse_args()
+    input_folder: Path = args.input_folder
+    input_files: List[Path] = [f for f in input_folder.iterdir()]
+    partials: List[Path] = [f for f in input_files if "partial" in f.name]
+    class_name_file: Path = [f for f in input_files if "classNameMapping" in f.name][0]
+    callsite_id_file: Path = [f for f in input_files if "callsite" in f.name][0]
+    start_time_file: Path = [f for f in input_files if "start_time" in f.name][0]
+
+    id_to_callsite: Dict[int, str] = parse_mapping_csv(callsite_id_file)
+    id_to_classname: Dict[int, str] = parse_mapping_csv(class_name_file)
+    with open(start_time_file) as f:
+        start_time = f.readline()
+
+
+    for partial in partials:
+        info = read_binary(partial)
+        callsite_info = reconstruct_callsite_info(info=info, id_to_callsite=id_to_callsite, id_to_classname=id_to_classname)
+        for cs, info in callsite_info.items():
+            percentage_windows = analyse_callsite(cs, info, start_time, args.delta)
+            changes = check_percentage_changes(percentage_windows)
+            inversions = check_inversions(percentage_windows)
+            output_results(cs, changes, inversions)
+        return
+
+    input_file: TextIO = open(args.input, "r")
+
+    content: Dict[str, int | Dict[str, List[int]]] = json.load(input_file)
+    beginning: int = content.get("beginning")
+    callsite_to_info: Dict[str, Dict[str, List[int]]] = {k: v for k, v in content.items() if k != "beginning"}
+    for cs, info in callsite_to_info.items():
+        percentage_windows = analyse_callsite(cs, info, beginning, args.delta)
+        changes = check_percentage_changes(percentage_windows)
+        inversions = check_inversions(percentage_windows)
+        output_results(cs, changes, inversions)
+    return    
+         
+    
+
 if __name__ == "__main__":
+    # input_file = Path("/home/ubuntu/receiver-types-profiler/output/partial_0.txt")
+    # class_name_file = Path("/home/ubuntu/receiver-types-profiler/output/classNameMapping_22_02_25_14_28.csv")
+    # callsite_to_id_file = Path("/home/ubuntu/receiver-types-profiler/output/callsite_to_id_22_02_25_14_28.csv")
+    # f = open("/home/ubuntu/receiver-types-profiler/output/partial_0.txt", "rb")
+    # res = read_binary(input_file=input_file)
+
+    # print(len(res))
+    # # print(parse_mapping_csv(class_name_file))
+    # print(parse_mapping_csv(callsite_to_id_file))
+    # return
     main()

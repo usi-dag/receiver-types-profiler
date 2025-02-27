@@ -1,55 +1,51 @@
 package profiler;
 
-import java.lang.annotation.Target;
 
 import ch.usi.dag.disl.annotation.Before;
-import ch.usi.dag.disl.annotation.After;
+
+import java.nio.MappedByteBuffer;
+
 import ch.usi.dag.disl.marker.BodyMarker;
-import ch.usi.dag.disl.marker.BasicBlockMarker;
 import ch.usi.dag.disl.staticcontext.MethodStaticContext;
 import profiler.CustomContext;
 import ch.usi.dag.disl.marker.BytecodeMarker;
-import ch.usi.dag.disl.staticcontext.BasicBlockStaticContext;
 import ch.usi.dag.disl.dynamiccontext.DynamicContext;
-import ch.usi.dag.disl.staticcontext.InstructionStaticContext;
 import ch.usi.dag.disl.annotation.ThreadLocal;
-import java.util.List;
 
-
-import java.util.ArrayList;
 
 public class Instrumentation {
    @ThreadLocal
    static long callsite = -1; 
 
    @ThreadLocal
-   static int index = 0;
+   static int i = 0;
 
    @ThreadLocal
-   static boolean isVirtual = false;
+   static MappedByteBuffer mb;
 
-    @Before(marker=BytecodeMarker.class, args="invokevirtual", scope="*")
-    static void beforeEveryInvokeVirtual(CustomContext cc, MethodStaticContext mc){
-      long id = cc.getTargetId();
-      callsite = id;
-      // System.out.println("Check here: " +id);
-      // isVirtual = true;
-      // System.out.println("VIRTUAL: "+mc.getUniqueInternalName());
-      // System.out.println("Callsite is: " + callsite);
-    }
+   @Before(marker=BytecodeMarker.class, args="invokevirtual", scope="*")
+   static void beforeEveryInvokeVirtual(CustomContext cc, MethodStaticContext mc){
+   long id = cc.getTargetId();
+   callsite = id;
+   // System.out.println("Check here: " +id);
+   // isVirtual = true;
+   // System.out.println("VIRTUAL: "+mc.getUniqueInternalName());
+   // System.out.println("Callsite is: " + callsite);
+   }
 
    @Before(marker=BodyMarker.class, scope="*", guard=Guard.class)
    static void beforeEveryMethod(DynamicContext dc, MethodStaticContext mc){
-      // System.out.println("IDK " + mc.getUniqueInternalName());
       Object obj = dc.getThis();
-      // test[index] = callsite;
-      // if(isVirtual){
-         // TODO: change to pass the obj class name
-         Profiler.addVirtualCall(callsite, obj);
-      // }else{
-         // Profiler.addInterfaceCall(callsite, obj);
-      // }
-      // callsite = -1;
+      if(mb == null){
+        mb = Profiler.getMemoryMappedFile();
+      }
+      if(i == Profiler.length){
+        // file is full
+        mb = Profiler.getMemoryMappedFile();
+        i = 0;
+      }
+      i = Profiler.putInfo(mb, i, callsite, obj);
+      callsite = -1;
    }
 
     @Before(marker=BytecodeMarker.class, args="invokeinterface", scope="*")
