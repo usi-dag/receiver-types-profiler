@@ -67,9 +67,6 @@ public class Profiler{
       String targetClassName = obj.getClass().getName();
       long tid = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);
 
-      // mb.putLong(callsite);
-      // mb.putLong(tid);
-      // mb.putLong(timeDiff);
       mb.putInt((int) (callsite & 0xFFFFFFFFL));
       mb.putInt((int) (tid & 0xFFFFFFFFL));
       mb.putLong(timeDiff);
@@ -79,7 +76,7 @@ public class Profiler{
 
       // mb.putInt((int) (a & 0xFFFFFFFFL));
       // mb.putInt((int) (b & 0xFFFFFFFFL));
-      // mb.putInt((int) (c & 0xFFFFFFFFL));
+      // mb.putLong(c);
 
       return index+3;
 
