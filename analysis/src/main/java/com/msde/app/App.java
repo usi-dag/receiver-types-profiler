@@ -13,11 +13,26 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 
 /**
  */
 public class App {
+    public static ConcurrentMap<Long, Lock> locks = new ConcurrentHashMap<>();
+
+
+    static{
+        for(long i= 0; i<1000; i++){
+            locks.computeIfAbsent(i, k -> new ReentrantLock());
+        }
+        
+    }
+
+    
     public static void main(String[] args) {
         File inputFolder = new File("/home/ubuntu/receiver-types-profiler/output");
         long delta = 1000;
@@ -25,47 +40,148 @@ public class App {
         var idToCallsite = parseCsvMapping(insFiles.callsite);
         var idToClassName = parseCsvMapping(insFiles.className);
         long startTime = getStartTime(insFiles.startTime);
-        // Map<String, Map<String, List<Long>>> total = new HashMap<>();
-        List<Long> totalInfo = new ArrayList<>();
-        for (File partial : insFiles.partials) {
-            Optional<List<Long>> maybeInfo = readBinary(partial);
-            if (maybeInfo.isEmpty()) {
-                System.err.println("Couldn't read binary file: " + partial.getAbsolutePath());
-                return;
+
+        // threads
+        // partitionFiles(Arrays.asList(insFiles.partials));
+
+        File resultFolder = new File("result/");
+        File[] callsiteFiles = resultFolder.listFiles((el) -> el.getName().startsWith("callsite_"));
+        int i = 0;
+        for(File cf: callsiteFiles){
+            System.out.println(String.format("woriking on file %s size %s", cf, cf.length()/1024));
+            Optional<List<Long>> maybeInfo = readBinary(cf);
+            System.out.println("finished reading binary");
+            if(maybeInfo.isEmpty()){
+                System.err.println("Couldn't read binary file: " + cf.getAbsolutePath());
             }
             List<Long> info = maybeInfo.get();
-            totalInfo.addAll(info);
-
-        }
-        File resultFolder = new File("result/");
-        resultFolder.mkdir();
-        File resFile = new File(resultFolder, "result.txt");
-        try {
-            resFile.createNewFile();
-        } catch (IOException e) {
-            System.err.println(e.getMessage());
-            return;
-        }
-        var callsiteInfo = reconstructCallsiteInfo(totalInfo, idToCallsite, idToClassName);
-        // callsiteInfo = callsiteInfo.entrySet().stream().filter(e -> e.getKey().contains("36 Main")).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
-        for (var entry : callsiteInfo.entrySet()) {
-            String callsite = entry.getKey();
-            var percentageWindows = analyseCallsite(entry.getValue(), delta);
-            var changes = findChanges(percentageWindows);
-            var inversions = findInversions(percentageWindows);
-            if (changes.isEmpty() && inversions.isEmpty()) {
-                continue;
-            }
-            StringBuilder res = formatAnalysisResult(callsite, changes, inversions);
-            System.out.println(res);
+            File resFile = new File(resultFolder, String.format("result_%s.txt", i++));
             try {
-                Files.writeString(resFile.toPath(), res.toString(), StandardOpenOption.APPEND);
+                resFile.createNewFile();
             } catch (IOException e) {
+                System.err.println(e.getMessage());
+                return;
+            }
+            var callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
+            System.out.println("finished reconstructing the callsites");
+            // callsiteInfo = callsiteInfo.entrySet().stream().filter(e -> e.getKey().contains("36 Main")).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+            for (var entry : callsiteInfo.entrySet()) {
+                String callsite = entry.getKey();
+                System.out.println("Before analyzing the callsites");
+                var percentageWindows = analyseCallsite(entry.getValue(), delta);
+                System.out.println("After analyzing the callsites");
+                var changes = findChanges(percentageWindows);
+                System.out.println("After finding changes");
+                var inversions = findInversions(percentageWindows);
+                System.out.println("After finding inversions");
+                if (changes.isEmpty() && inversions.isEmpty()) {
+                    continue;
+                }
+                StringBuilder res = formatAnalysisResult(callsite, changes, inversions);
+                // System.out.println(res);
+                try {
+                    Files.writeString(resFile.toPath(), res.toString(), StandardOpenOption.APPEND);
+                } catch (IOException e) {
+                    System.err.println(e.getMessage());
+                }
+            }
+            System.out.println("finished writing information to result file");
+            
+        }
+
+    }
+
+    private static void partitionFiles(List<File> partials) {
+        int numberOfPartitions = 4;
+        int partitionSize = partials.size()/ numberOfPartitions;
+        List<List<File>> partitions = new ArrayList<List<File>>();
+        for (int i = 0; i < numberOfPartitions; i++) {
+            int beg = i * partitionSize;
+            int end = Math.min(beg + partitionSize, partials.size());
+            if (i == numberOfPartitions - 1) {
+                end = partials.size();
+            }
+            partitions.add(partials.subList(beg, end));
+        }
+
+        List<Thread> threads = new ArrayList<>();
+        int i = 0;
+        for (List<File> binaryFiles : partitions) {
+            int alpaca = i++;
+            Thread t = new Thread(() -> {
+                int filesNumber = binaryFiles.size();
+                int current = 0;
+                int id = alpaca;
+                for (File binaryFile : binaryFiles) {
+                    writeIntermediateFiles(binaryFile);
+                    current++;
+                    System.out.println(String.format("Progress id: %s - %s/%s", id, current, filesNumber));
+                }
+            });
+            t.start();
+            threads.add(t);
+        }
+        for (Thread t : threads) {
+            try {
+                t.join();
+            } catch (InterruptedException e) {
                 System.err.println(e.getMessage());
             }
         }
+        
     }
 
+    
+    private static void writeIntermediateFiles(File binaryFile) {
+        try {
+            byte[] bytes = Files.readAllBytes(binaryFile.toPath());
+            ByteBuffer.allocate(Long.BYTES).getLong();
+            File intermediateFolder = new File("result/");
+            intermediateFolder.mkdir();
+            
+            Map<Long, List<Byte>> fileIdToBytes = new HashMap<>();
+            for (int i = 0; i < bytes.length; i += 16) {
+                byte[] cs = new byte[8];
+                cs[4] = bytes[i];
+                cs[5] = bytes[i + 1];
+                cs[6] = bytes[i + 2];
+                cs[7] = bytes[i + 3];
+                long callsiteId = ByteBuffer.wrap(cs).getLong();
+                cs[4] = bytes[i + 4];
+                cs[5] = bytes[i + 5];
+                cs[6] = bytes[i + 6];
+                cs[7] = bytes[i + 7];
+                long classNameId = ByteBuffer.wrap(cs).getLong();
+                long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
+                if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
+                    break;
+                }
+                long m = callsiteId % 1000;
+                List<Byte> toAdd = new ArrayList<>();
+                for(byte b: Arrays.copyOfRange(bytes, i, i+16)){
+                    toAdd.add(b);
+                }
+                fileIdToBytes.computeIfAbsent(m, k-> new ArrayList<>()).addAll(toAdd);
+            }
+            for(Map.Entry<Long, List<Byte>> entry: fileIdToBytes.entrySet()){
+                locks.get(entry.getKey()).lock();
+                File csFile = new File(intermediateFolder, String.format("callsite_%s.txt", entry.getKey()));
+                if(!csFile.exists()){
+                    csFile.createNewFile();
+                }
+                byte[] toWrite = new byte[entry.getValue().size()];
+                int i = 0;
+                for(Byte b: entry.getValue()){
+                    toWrite[i++] = b;
+                }
+                Files.write(csFile.toPath(), toWrite, StandardOpenOption.APPEND);
+                locks.get(entry.getKey()).unlock();
+            }
+            binaryFile.delete();
+        } catch (IOException e) {
+            System.err.println(e.getMessage());
+        }
+    }
 
     record InstrumentationFiles(File[] partials, File className, File callsite, File startTime) {
     }
