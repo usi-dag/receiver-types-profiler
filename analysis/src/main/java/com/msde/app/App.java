@@ -32,23 +32,48 @@ public class App {
         
     }
 
+    record Args(File inputFolder, long delta){}
+
+    private static Args parseArgs(String[] args){
+        Args parsedArgs = new Args(new File("/home/ubuntu/receiver-types-profiler/output"), 1000l);
+        int i=0;
+        while(i<args.length){
+            String current = args[i++];
+            switch(current){
+                case "--input-folder", "-i" -> {
+                    File inputFolder = new File(args[i++]);
+                    parsedArgs = new Args(inputFolder, parsedArgs.delta);
+                }
+                case "--delta", "-d" -> {
+                    long delta = Long.parseLong(args[i++]);
+                    parsedArgs = new Args(parsedArgs.inputFolder, delta);
+                }
+                default -> {
+                    System.out.println("usage: [--help] [--input-folder folder] [--delta time]"); 
+                    System.exit(0);
+                }
+            }
+
+        }
+        return parsedArgs;
+    }
     
     public static void main(String[] args) {
-        File inputFolder = new File("/home/ubuntu/receiver-types-profiler/output");
-        long delta = 1000;
-        InstrumentationFiles insFiles = getInstrumentationFiles(inputFolder);
+        Args arguments = parseArgs(args);
+        InstrumentationFiles insFiles = getInstrumentationFiles(arguments.inputFolder);
         var idToCallsite = parseCsvMapping(insFiles.callsite);
         var idToClassName = parseCsvMapping(insFiles.className);
         long startTime = getStartTime(insFiles.startTime);
 
         // threads
-        // partitionFiles(Arrays.asList(insFiles.partials));
+        partitionFiles(Arrays.asList(insFiles.partials));
 
         File resultFolder = new File("result/");
         File[] callsiteFiles = resultFolder.listFiles((el) -> el.getName().startsWith("callsite_"));
         int i = 0;
+        // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
         for(File cf: callsiteFiles){
-            System.out.println(String.format("woriking on file %s size %s", cf, cf.length()/1024));
+            System.out.println(String.format("working on file %s %s/%s size %s M", cf,i, callsiteFiles.length, cf.length()/(1024*1024)));
             Optional<List<Long>> maybeInfo = readBinary(cf);
             System.out.println("finished reading binary");
             if(maybeInfo.isEmpty()){
@@ -67,13 +92,9 @@ public class App {
             // callsiteInfo = callsiteInfo.entrySet().stream().filter(e -> e.getKey().contains("36 Main")).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
             for (var entry : callsiteInfo.entrySet()) {
                 String callsite = entry.getKey();
-                System.out.println("Before analyzing the callsites");
-                var percentageWindows = analyseCallsite(entry.getValue(), delta);
-                System.out.println("After analyzing the callsites");
+                var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
                 var changes = findChanges(percentageWindows);
-                System.out.println("After finding changes");
                 var inversions = findInversions(percentageWindows);
-                System.out.println("After finding inversions");
                 if (changes.isEmpty() && inversions.isEmpty()) {
                     continue;
                 }
@@ -267,20 +288,27 @@ public class App {
 
 
     private static List<Map<String, Double>> analyseCallsite(Map<String, List<Long>> info, long timeFrame) {
+        // returns a list of windows which shows the percentages of the calls on each receiver type in that window
         long windowStart = info.values().stream().flatMap(List::stream).mapToLong(e -> e).min().orElse(0);
         long end = info.values().stream().flatMap(List::stream).mapToLong(e -> e).max().orElse(Long.MAX_VALUE);
+        int i =0;
+        long nIteration = ((end-windowStart)/timeFrame) + 1;
         List<Map<String, List<Long>>> windows = new ArrayList<>();
-        while (true) {
-            Map<String, List<Long>> current = new HashMap<>();
-            for (Map.Entry<String, List<Long>> el : info.entrySet()) {
-                long bs = windowStart;
-                var res = el.getValue().stream().filter(e -> e >= bs && e < bs + timeFrame).toList();
-                current.put(el.getKey(), res);
+        for(int j = 0; j<nIteration; j++){
+            windows.add(new HashMap<>());            
+        }
+        for (Map.Entry<String, List<Long>> el : info.entrySet()) {
+            List<List<Long>> partitionedInfo = new ArrayList<>();
+            for(int j=0; j<nIteration; j++){
+                partitionedInfo.add(new ArrayList<>());
             }
-            windows.add(current);
-            windowStart += timeFrame;
-            if (windowStart > end) {
-                break;
+            
+            for(Long l: el.getValue()){
+                int index = (int) ((l-windowStart)/timeFrame);
+                partitionedInfo.get(index).add(l);
+            }
+            for(int j=0; j<partitionedInfo.size();j++){
+                windows.get(j).put(el.getKey(), partitionedInfo.get(j));
             }
         }
         // [{k: len(v) / sum(map(len, e.values())) for k, v in e.items()} for e in windows]
