@@ -8,3 +8,6 @@ output
 result
 harness*
 launcher*
+analysis/target
+analysis/.classpath
+analysis/.project
