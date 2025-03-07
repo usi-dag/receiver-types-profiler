@@ -73,9 +73,9 @@ public class App {
         int i = 0;
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
         for(File cf: callsiteFiles){
-            System.out.println(String.format("working on file %s %s/%s size %s M", cf,i, callsiteFiles.length, cf.length()/(1024*1024)));
+            System.out.print(String.format("\33[2K\rworking on file %s %s/%s size %s M" , cf,i, callsiteFiles.length, cf.length()/(1024*1024)));
             Optional<List<Long>> maybeInfo = readBinary(cf);
-            System.out.println("finished reading binary");
+            // System.out.println("finished reading binary");
             if(maybeInfo.isEmpty()){
                 System.err.println("Couldn't read binary file: " + cf.getAbsolutePath());
             }
@@ -88,7 +88,7 @@ public class App {
                 return;
             }
             var callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
-            System.out.println("finished reconstructing the callsites");
+            // System.out.println("finished reconstructing the callsites");
             // callsiteInfo = callsiteInfo.entrySet().stream().filter(e -> e.getKey().contains("36 Main")).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
             for (var entry : callsiteInfo.entrySet()) {
                 String callsite = entry.getKey();
@@ -106,7 +106,7 @@ public class App {
                     System.err.println(e.getMessage());
                 }
             }
-            System.out.println("finished writing information to result file");
+            // System.out.println("finished writing information to result file");
             
         }
 

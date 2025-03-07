@@ -1,0 +1,76 @@
+#!/bin/bash
+
+function quit(){
+	echo "Usage: $0 <dacapo or ren> <number of iterations per benchmark>"
+	exit 0
+}
+
+
+if [ "$#" -ne 2 ]; then
+	echo "Usage: $0 <dacapo or ren> <number of iterations per benchmark>"
+	quit
+fi
+
+
+case "$1" in
+    "dacapo")
+        FLAGS="-n $2"
+    		BENCH=dacapo-23.11-MR2-chopin.jar 
+        benchmarks=(avrora batik biojava cassandra eclipse fop graphchi h2 h2o jme jython kafka luindex lusearch pmd spring sunflow tomcat tradebeans tradesoap xalan zxing)
+        # benchmarks=(jme)
+        ;;
+    "ren")
+    		FLAGS="-r $2"
+        BENCH=renaissance-gpl-0.16.0.jar 
+        benchmarks=(scrabble page-rank future-genetic akka-uct movie-lens scala-doku chi-square fj-kmeans rx-scrabble db-shootout neo4j-analytics finagle-http reactors dec-tree scala-stm-bench7 naive-bayes als par-mnemonics scala-kmeans philosophers log-regression gauss-mix mnemonics dotty finagle-chirper)
+        ;;
+
+    *)
+    quit ;;
+esac
+
+
+ant -Ddislclass=profiler.Instrumentation -buildfile build.xml
+
+for entry in "${benchmarks[@]}"; do
+
+  processid=`jps | grep DiSLServer | cut -d " " -f1`
+
+  if [ -n "$processid" ]; then
+    kill -9 "$processid"
+    echo "Old DiSLServer killed"
+  fi
+
+  ./startDiSLServer.sh
+
+  sleep 2
+
+
+  AGENT_PATH=lib/aarch64/libdislagent.so
+  DISL_BYPASS=lib/disl-bypass.jar
+  PROFILER=build/profiler.jar
+
+  java -agentpath:$AGENT_PATH --patch-module java.base=$DISL_BYPASS \
+  -Djava.security.manager=allow \
+  --add-exports java.base/ch.usi.dag.disl.dynamicbypass=ALL-UNNAMED \
+  -Xbootclasspath/a:$DISL_BYPASS:$PROFILER -noverify -cp $PROFILER \
+  -Xmx6G -Xms6G \
+  -jar $BENCH $entry $FLAGS
+
+  java -Xmx10G -classpath analysis/target/classes/ com.msde.app.App -i output/
+
+  ARCHIVENAME="$1"_"$entry".tar.gz
+  echo $ARCHIVENAME
+  tar --use-compress-program="pigz -k" -cf $ARCHIVENAME result
+
+  ARCHIVEDIR=/mnt/hdd/archives/
+  # ARCHIVEDIR=archives/
+
+  if [ ! -d "archives/" ]; then
+    mkdir $ARCHIVEDIR
+  fi
+
+  mv $ARCHIVENAME $ARCHIVEDIR
+  rm output/*
+  rm result/*
+done
