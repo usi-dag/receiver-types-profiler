@@ -1,6 +1,8 @@
 package com.msde.app;
 
+import java.io.BufferedInputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
@@ -144,6 +146,12 @@ public class App {
         }
         new Thread(()->{
             while(threadFinished.stream().mapToInt(el->el).sum()!= partials.size()){
+                try{
+                    
+                    Thread.sleep(500);
+                } catch(InterruptedException e){
+                    System.err.println(e.getMessage());
+                }
                 String progress = IntStream.range(0, threadFinished.size()).mapToObj(el -> String.format("%s - %s/%s", el, threadFinished.get(el), partitions.get(el).size())).collect(Collectors.joining(", "));
                 System.out.print("\33[2K\rPartition progess: "+progress);
             }
@@ -251,30 +259,55 @@ public class App {
 
     private static Optional<List<Long>> readBinary(File binaryFile) {
         try {
-            byte[] bytes = Files.readAllBytes(binaryFile.toPath());
+            // byte[] bytes = Files.readAllBytes(binaryFile.toPath());
             ByteBuffer.allocate(Long.BYTES).getLong();
             List<Long> l = new ArrayList<>() {
             };
-            for (int i = 0; i < bytes.length; i += 16) {
-                byte[] cs = new byte[8];
-                cs[4] = bytes[i];
-                cs[5] = bytes[i + 1];
-                cs[6] = bytes[i + 2];
-                cs[7] = bytes[i + 3];
-                long callsiteId = ByteBuffer.wrap(cs).getLong();
-                cs[4] = bytes[i + 4];
-                cs[5] = bytes[i + 5];
-                cs[6] = bytes[i + 6];
-                cs[7] = bytes[i + 7];
-                long classNameId = ByteBuffer.wrap(cs).getLong();
-                long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
-                if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
-                    break;
+            try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(binaryFile.toPath().toString()))) {
+                byte[] bytes = new byte[128*1024*1024];
+                int len;
+                outer: while ((len = in.read(bytes)) != -1) {
+                    for(int i=0; i<len; i+= 16){
+                        byte[] cs = new byte[8];
+                        cs[4] = bytes[i];
+                        cs[5] = bytes[i + 1];
+                        cs[6] = bytes[i + 2];
+                        cs[7] = bytes[i + 3];
+                        long callsiteId = ByteBuffer.wrap(cs).getLong();
+                        cs[4] = bytes[i + 4];
+                        cs[5] = bytes[i + 5];
+                        cs[6] = bytes[i + 6];
+                        cs[7] = bytes[i + 7];
+                        long classNameId = ByteBuffer.wrap(cs).getLong();
+                        long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
+                        if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
+                            break outer;
+                        }
+                        l.add(callsiteId);
+                        l.add(classNameId);
+                        l.add(timeDiff);                    }
                 }
-                l.add(callsiteId);
-                l.add(classNameId);
-                l.add(timeDiff);
             }
+            // for (int i = 0; i < bytes.length; i += 16) {
+            //     byte[] cs = new byte[8];
+            //     cs[4] = bytes[i];
+            //     cs[5] = bytes[i + 1];
+            //     cs[6] = bytes[i + 2];
+            //     cs[7] = bytes[i + 3];
+            //     long callsiteId = ByteBuffer.wrap(cs).getLong();
+            //     cs[4] = bytes[i + 4];
+            //     cs[5] = bytes[i + 5];
+            //     cs[6] = bytes[i + 6];
+            //     cs[7] = bytes[i + 7];
+            //     long classNameId = ByteBuffer.wrap(cs).getLong();
+            //     long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
+            //     if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
+            //         break;
+            //     }
+            //     l.add(callsiteId);
+            //     l.add(classNameId);
+            //     l.add(timeDiff);
+            // }
             return Optional.of(l);
         } catch (IOException e) {
             System.err.println(e.getMessage());

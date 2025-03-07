@@ -34,7 +34,7 @@ ant -Ddislclass=profiler.Instrumentation -buildfile build.xml
 
 for entry in "${benchmarks[@]}"; do
 
-  processid=`jps | grep DiSLServer | cut -d " " -f1`
+  processid=`$JAVA_HOME/bin/jps | grep DiSLServer | cut -d " " -f1`
 
   if [ -n "$processid" ]; then
     kill -9 "$processid"
@@ -45,8 +45,10 @@ for entry in "${benchmarks[@]}"; do
 
   sleep 2
 
+  ARCH=`uname -p`
 
-  AGENT_PATH=lib/aarch64/libdislagent.so
+
+  AGENT_PATH=lib/$ARCH/libdislagent.so
   DISL_BYPASS=lib/disl-bypass.jar
   PROFILER=build/profiler.jar
 
