@@ -50,14 +50,14 @@ for entry in "${benchmarks[@]}"; do
   DISL_BYPASS=lib/disl-bypass.jar
   PROFILER=build/profiler.jar
 
-  java -agentpath:$AGENT_PATH --patch-module java.base=$DISL_BYPASS \
+  $JAVA_HOME/bin/java -agentpath:$AGENT_PATH --patch-module java.base=$DISL_BYPASS \
   -Djava.security.manager=allow \
   --add-exports java.base/ch.usi.dag.disl.dynamicbypass=ALL-UNNAMED \
   -Xbootclasspath/a:$DISL_BYPASS:$PROFILER -noverify -cp $PROFILER \
   -Xmx6G -Xms6G \
   -jar $BENCH $entry $FLAGS
 
-  java -Xmx10G -classpath analysis/target/classes/ com.msde.app.App -i output/
+  $JAVA_HOME/bin/java -Xmx10G -classpath analysis/target/classes/ com.msde.app.App -i output/
 
   ARCHIVENAME="$1"_"$entry".tar.gz
   echo $ARCHIVENAME
@@ -66,7 +66,7 @@ for entry in "${benchmarks[@]}"; do
   ARCHIVEDIR=/mnt/hdd/archives/
   # ARCHIVEDIR=archives/
 
-  if [ ! -d "archives/" ]; then
+  if [ ! -d $ARCHIVEDIR ]; then
     mkdir $ARCHIVEDIR
   fi
 

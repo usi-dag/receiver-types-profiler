@@ -12,6 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -73,7 +74,7 @@ public class App {
         int i = 0;
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
         for(File cf: callsiteFiles){
-            System.out.print(String.format("\33[2K\rworking on file %s %s/%s size %s M" , cf,i, callsiteFiles.length, cf.length()/(1024*1024)));
+            System.out.print(String.format("\33[2K\rworking on file %s %s/%s size %s M" , cf, i+1, callsiteFiles.length, cf.length()/(1024*1024)));
             Optional<List<Long>> maybeInfo = readBinary(cf);
             // System.out.println("finished reading binary");
             if(maybeInfo.isEmpty()){
@@ -106,11 +107,11 @@ public class App {
                     System.err.println(e.getMessage());
                 }
             }
-            // System.out.println("finished writing information to result file");
-            
         }
-
+        System.out.println();
     }
+
+    
 
     private static void partitionFiles(List<File> partials) {
         int numberOfPartitions = 4;
@@ -124,24 +125,34 @@ public class App {
             }
             partitions.add(partials.subList(beg, end));
         }
-
+        List<Integer> threadFinished = Arrays.asList(0, 0, 0, 0);
         List<Thread> threads = new ArrayList<>();
         int i = 0;
         for (List<File> binaryFiles : partitions) {
             int alpaca = i++;
             Thread t = new Thread(() -> {
-                int filesNumber = binaryFiles.size();
                 int current = 0;
                 int id = alpaca;
                 for (File binaryFile : binaryFiles) {
                     writeIntermediateFiles(binaryFile);
                     current++;
-                    System.out.println(String.format("Progress id: %s - %s/%s", id, current, filesNumber));
+                    threadFinished.set(id, current);
                 }
             });
             t.start();
             threads.add(t);
         }
+        new Thread(()->{
+            while(threadFinished.stream().mapToInt(el->el).sum()!= partials.size()){
+                String progress = IntStream.range(0, threadFinished.size()).mapToObj(el -> String.format("%s - %s/%s", el, threadFinished.get(el), partitions.get(el).size())).collect(Collectors.joining(", "));
+                System.out.print("\33[2K\rPartition progess: "+progress);
+            }
+            String progress = IntStream.range(0, threadFinished.size()).mapToObj(el -> String.format("%s - %s/%s", el, threadFinished.get(el), partitions.get(el).size())).collect(Collectors.joining(", "));
+            System.out.print("\33[2K\rPartition progess: "+progress);
+            System.out.println();
+        }).start();
+
+
         for (Thread t : threads) {
             try {
                 t.join();
