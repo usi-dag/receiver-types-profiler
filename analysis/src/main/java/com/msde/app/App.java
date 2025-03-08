@@ -38,7 +38,7 @@ public class App {
     record Args(File inputFolder, long delta){}
 
     private static Args parseArgs(String[] args){
-        Args parsedArgs = new Args(new File("/home/ubuntu/receiver-types-profiler/output"), 1000l);
+        Args parsedArgs = new Args(new File("/home/ubuntu/receiver-types-profiler/output"), 1000L);
         int i=0;
         while(i<args.length){
             String current = args[i++];
@@ -66,33 +66,38 @@ public class App {
         InstrumentationFiles insFiles = getInstrumentationFiles(arguments.inputFolder);
         var idToCallsite = parseCsvMapping(insFiles.callsite);
         var idToClassName = parseCsvMapping(insFiles.className);
-        long startTime = getStartTime(insFiles.startTime);
+        // long startTime = getStartTime(insFiles.startTime);
+        // InstrumentationFiles insFiles = null;
+        // Map<Long, String> idToCallsite = null;
+        // Map<Long, String> idToClassName = null;
+        // long startTime = getStartTime(insFiles.startTime);
 
         // threads
-        partitionFiles(Arrays.asList(insFiles.partials));
+        // partitionFiles(Arrays.asList(insFiles.partials));
 
         File resultFolder = new File("result/");
         File[] callsiteFiles = resultFolder.listFiles((el) -> el.getName().startsWith("callsite_"));
+        assert callsiteFiles != null;
+        callsiteFiles = tryPartitioningLargeFiles(Arrays.asList(callsiteFiles));
         int i = 0;
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
         for(File cf: callsiteFiles){
-            System.out.print(String.format("\33[2K\rworking on file %s %s/%s size %s M" , cf, i+1, callsiteFiles.length, cf.length()/(1024*1024)));
+            System.out.printf("\33[2K\rworking on file %s %s/%s size %s M" , cf, i+1, callsiteFiles.length, cf.length()/(1024*1024));
             Optional<List<Long>> maybeInfo = readBinary(cf);
             // System.out.println("finished reading binary");
             if(maybeInfo.isEmpty()){
                 System.err.println("Couldn't read binary file: " + cf.getAbsolutePath());
+                continue;
             }
             List<Long> info = maybeInfo.get();
             File resFile = new File(resultFolder, String.format("result_%s.txt", i++));
             try {
-                resFile.createNewFile();
+                boolean _e = resFile.createNewFile();
             } catch (IOException e) {
                 System.err.println(e.getMessage());
                 return;
             }
             var callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
-            // System.out.println("finished reconstructing the callsites");
-            // callsiteInfo = callsiteInfo.entrySet().stream().filter(e -> e.getKey().contains("36 Main")).collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
             for (var entry : callsiteInfo.entrySet()) {
                 String callsite = entry.getKey();
                 var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
@@ -113,12 +118,88 @@ public class App {
         System.out.println();
     }
 
-    
+    private static File[] tryPartitioningLargeFiles(List<File> callsiteFiles) {
+        int size = callsiteFiles.size();
+        List<File> largeFiles = callsiteFiles.stream().filter(f -> f.length() > 512 * 1024 * 1024).toList();
+        File intermediateFolder = new File("result/");
+        for (File binaryFile : largeFiles) {
+            try {
+                try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(binaryFile.toPath().toString()))) {
+                    byte[] bytes = new byte[128 * 1024 * 1024];
+                    int len;
+                    List<List<Byte>> fileIdToLists = new ArrayList<>(17);
+                    for(int i=0; i<17; i++){
+                        fileIdToLists.add(new ArrayList<>());
+                    }
+                    int addedBytes = 0;
+                    outer:
+                    while ((len = in.read(bytes)) != -1) {
+                        for (int i = 0; i < len; i += 16) {
+                            byte[] cs = new byte[8];
+                            cs[4] = bytes[i];
+                            cs[5] = bytes[i + 1];
+                            cs[6] = bytes[i + 2];
+                            cs[7] = bytes[i + 3];
+                            long callsiteId = ByteBuffer.wrap(cs).getLong();
+                            cs[4] = bytes[i + 4];
+                            cs[5] = bytes[i + 5];
+                            cs[6] = bytes[i + 6];
+                            cs[7] = bytes[i + 7];
+                            long classNameId = ByteBuffer.wrap(cs).getLong();
+                            long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
+                            if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
+                                break outer;
+                            }
+                            long m = callsiteId % 17;
+                            List<Byte> toAdd = new ArrayList<>();
+                            for (byte b : Arrays.copyOfRange(bytes, i, i + 16)) {
+                                toAdd.add(b);
+                            }
+                            fileIdToLists.get((int)m).addAll(toAdd);
+                            addedBytes += 16;
+                            if(addedBytes== 128*1024*1024){
+                                writeBytesToFile(size, intermediateFolder, fileIdToLists);
+                                addedBytes=0;
+                                for(int k=0; k<17; k++){
+                                    fileIdToLists.set(k, new ArrayList<>());
+                                }
+                            }
+                        }
+                    }
+
+                    writeBytesToFile(size, intermediateFolder, fileIdToLists);
+                    binaryFile.delete();
+                }
+            } catch (IOException e) {
+                System.err.println(e.getMessage());
+            }
+        }
+
+        File resultFolder = new File("result/");
+        return resultFolder.listFiles((el) -> el.getName().startsWith("callsite_"));
+
+    }
+
+    private static void writeBytesToFile(int size, File intermediateFolder, List<List<Byte>> fileIdToLists) throws IOException {
+        for (int k=0; k<17; k++) {
+            List<Byte> list = fileIdToLists.get(k);
+            File csFile = new File(intermediateFolder, String.format("callsite_%s.txt",size+ k));
+            if (!csFile.exists()) {
+                csFile.createNewFile();
+            }
+            byte[] toWrite = new byte[list.size()];
+            int j = 0;
+            for (Byte b : list) {
+                toWrite[j++] = b;
+            }
+            Files.write(csFile.toPath(), toWrite, StandardOpenOption.APPEND);
+        }
+    }
 
     private static void partitionFiles(List<File> partials) {
         int numberOfPartitions = 4;
         int partitionSize = partials.size()/ numberOfPartitions;
-        List<List<File>> partitions = new ArrayList<List<File>>();
+        List<List<File>> partitions = new ArrayList<>();
         for (int i = 0; i < numberOfPartitions; i++) {
             int beg = i * partitionSize;
             int end = Math.min(beg + partitionSize, partials.size());
@@ -147,7 +228,6 @@ public class App {
         new Thread(()->{
             while(threadFinished.stream().mapToInt(el->el).sum()!= partials.size()){
                 try{
-                    
                     Thread.sleep(500);
                 } catch(InterruptedException e){
                     System.err.println(e.getMessage());
@@ -285,29 +365,10 @@ public class App {
                         }
                         l.add(callsiteId);
                         l.add(classNameId);
-                        l.add(timeDiff);                    }
+                        l.add(timeDiff);
+                    }
                 }
             }
-            // for (int i = 0; i < bytes.length; i += 16) {
-            //     byte[] cs = new byte[8];
-            //     cs[4] = bytes[i];
-            //     cs[5] = bytes[i + 1];
-            //     cs[6] = bytes[i + 2];
-            //     cs[7] = bytes[i + 3];
-            //     long callsiteId = ByteBuffer.wrap(cs).getLong();
-            //     cs[4] = bytes[i + 4];
-            //     cs[5] = bytes[i + 5];
-            //     cs[6] = bytes[i + 6];
-            //     cs[7] = bytes[i + 7];
-            //     long classNameId = ByteBuffer.wrap(cs).getLong();
-            //     long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
-            //     if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
-            //         break;
-            //     }
-            //     l.add(callsiteId);
-            //     l.add(classNameId);
-            //     l.add(timeDiff);
-            // }
             return Optional.of(l);
         } catch (IOException e) {
             System.err.println(e.getMessage());
