@@ -17,8 +17,10 @@ public class Instrumentation {
    @ThreadLocal
    static long callsite = -1; 
 
+   // 'i' is initialized to the Profile.length to remove an if statement
+   // from the instrumentation.
    @ThreadLocal
-   static int i = 0;
+   static int i = 3*512*1024;
 
    @ThreadLocal
    static MappedByteBuffer mb;
@@ -36,9 +38,6 @@ public class Instrumentation {
    @Before(marker=BodyMarker.class, scope="*", guard=Guard.class)
    static void beforeEveryMethod(DynamicContext dc, MethodStaticContext mc){
       Object obj = dc.getThis();
-      if(mb == null){
-        mb = Profiler.getMemoryMappedFile();
-      }
       if(i == Profiler.length){
         // file is full
         mb = Profiler.getMemoryMappedFile();

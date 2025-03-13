@@ -70,15 +70,16 @@ public class App {
         // InstrumentationFiles insFiles = null;
         // Map<Long, String> idToCallsite = null;
         // Map<Long, String> idToClassName = null;
-        // long startTime = getStartTime(insFiles.startTime);
 
         // threads
-        // partitionFiles(Arrays.asList(insFiles.partials));
+        partitionFiles(Arrays.asList(insFiles.partials));
+        System.out.println("After partitioningfiles.");
 
         File resultFolder = new File("result/");
         File[] callsiteFiles = resultFolder.listFiles((el) -> el.getName().startsWith("callsite_"));
         assert callsiteFiles != null;
-        callsiteFiles = tryPartitioningLargeFiles(Arrays.asList(callsiteFiles));
+        // callsiteFiles = tryPartitioningLargeFiles(Arrays.asList(callsiteFiles));
+        System.out.println("After partitioning large files.");
         int i = 0;
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
         for(File cf: callsiteFiles){
@@ -100,6 +101,11 @@ public class App {
             var callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
             for (var entry : callsiteInfo.entrySet()) {
                 String callsite = entry.getKey();
+                if(callsite == null){
+                    System.err.println("Couldn't reconstruct callsite for file " + cf.getAbsolutePath());
+                    System.exit(1);
+                }
+                // System.out.println("Callsite: " + callsite);
                 var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
                 var changes = findChanges(percentageWindows);
                 var inversions = findInversions(percentageWindows);
@@ -121,6 +127,7 @@ public class App {
     private static File[] tryPartitioningLargeFiles(List<File> callsiteFiles) {
         int size = callsiteFiles.size();
         List<File> largeFiles = callsiteFiles.stream().filter(f -> f.length() > 512 * 1024 * 1024).toList();
+        System.out.println(largeFiles.size());
         File intermediateFolder = new File("result/");
         for (File binaryFile : largeFiles) {
             try {
@@ -169,6 +176,7 @@ public class App {
 
                     writeBytesToFile(size, intermediateFolder, fileIdToLists);
                     binaryFile.delete();
+                    size+=17;
                 }
             } catch (IOException e) {
                 System.err.println(e.getMessage());
@@ -225,7 +233,7 @@ public class App {
             t.start();
             threads.add(t);
         }
-        new Thread(()->{
+        Thread logThread = new Thread(()->{
             while(threadFinished.stream().mapToInt(el->el).sum()!= partials.size()){
                 try{
                     Thread.sleep(500);
@@ -238,7 +246,8 @@ public class App {
             String progress = IntStream.range(0, threadFinished.size()).mapToObj(el -> String.format("%s - %s/%s", el, threadFinished.get(el), partitions.get(el).size())).collect(Collectors.joining(", "));
             System.out.print("\33[2K\rPartition progess: "+progress);
             System.out.println();
-        }).start();
+        });
+        logThread.start();
 
 
         for (Thread t : threads) {
@@ -247,6 +256,12 @@ public class App {
             } catch (InterruptedException e) {
                 System.err.println(e.getMessage());
             }
+        }
+
+        try{
+            logThread.join();
+        } catch(InterruptedException e){
+            System.err.println(e.getMessage());
         }
         
     }
@@ -260,6 +275,7 @@ public class App {
             intermediateFolder.mkdir();
             
             Map<Long, List<Byte>> fileIdToBytes = new HashMap<>();
+            int readBytes = 0;
             for (int i = 0; i < bytes.length; i += 16) {
                 byte[] cs = new byte[8];
                 cs[4] = bytes[i];
@@ -282,6 +298,24 @@ public class App {
                     toAdd.add(b);
                 }
                 fileIdToBytes.computeIfAbsent(m, k-> new ArrayList<>()).addAll(toAdd);
+                readBytes += 16;
+                if(readBytes >= 128*1024*1024){
+                    for(Map.Entry<Long, List<Byte>> entry: fileIdToBytes.entrySet()){
+                        locks.get(entry.getKey()).lock();
+                        File csFile = new File(intermediateFolder, String.format("callsite_%s.txt", entry.getKey()));
+                        if(!csFile.exists()){
+                            csFile.createNewFile();
+                        }
+                        byte[] toWrite = new byte[entry.getValue().size()];
+                        int j = 0;
+                        for(Byte b: entry.getValue()){
+                            toWrite[j++] = b;
+                        }
+                        Files.write(csFile.toPath(), toWrite, StandardOpenOption.APPEND);
+                        locks.get(entry.getKey()).unlock();
+                    }
+                    fileIdToBytes.clear();
+                }
             }
             for(Map.Entry<Long, List<Byte>> entry: fileIdToBytes.entrySet()){
                 locks.get(entry.getKey()).lock();
