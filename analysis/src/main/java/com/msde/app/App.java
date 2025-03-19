@@ -58,6 +58,7 @@ public class App {
             }
 
         }
+
         return parsedArgs;
     }
     
@@ -66,7 +67,7 @@ public class App {
         InstrumentationFiles insFiles = getInstrumentationFiles(arguments.inputFolder);
         var idToCallsite = parseCsvMapping(insFiles.callsite);
         var idToClassName = parseCsvMapping(insFiles.className);
-        // long startTime = getStartTime(insFiles.startTime);
+        long startTime = getStartTime(insFiles.startTime);
         // InstrumentationFiles insFiles = null;
         // Map<Long, String> idToCallsite = null;
         // Map<Long, String> idToClassName = null;
@@ -82,6 +83,9 @@ public class App {
         System.out.println("After partitioning large files.");
         int i = 0;
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
+        XmlParser parser = new XmlParser(new File("compiler_log.xml"));
+        Long vmStartTime = parser.getVmStartTime();
+        Long startTimeDiff = startTime-vmStartTime;
         for(File cf: callsiteFiles){
             System.out.printf("\33[2K\rworking on file %s %s/%s size %s M" , cf, i+1, callsiteFiles.length, cf.length()/(1024*1024));
             Optional<List<Long>> maybeInfo = readBinary(cf);
@@ -92,12 +96,12 @@ public class App {
             }
             List<Long> info = maybeInfo.get();
             File resFile = new File(resultFolder, String.format("result_%s.txt", i++));
-            try {
-                boolean _e = resFile.createNewFile();
-            } catch (IOException e) {
-                System.err.println(e.getMessage());
-                return;
-            }
+            // try {
+            //     boolean _e = resFile.createNewFile();
+            // } catch (IOException e) {
+            //     System.err.println(e.getMessage());
+            //     return;
+            // }
             var callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
             for (var entry : callsiteInfo.entrySet()) {
                 String callsite = entry.getKey();
@@ -106,15 +110,22 @@ public class App {
                     System.exit(1);
                 }
                 // System.out.println("Callsite: " + callsite);
-                var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
-                var changes = findChanges(percentageWindows);
-                var inversions = findInversions(percentageWindows);
+                // var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
+                String methodDescriptor = extractMethodDescriptor(callsite);
+                List<Long> compilations = parser.findCompilationStamps(methodDescriptor);
+                compilations = compilations.stream().map(e -> e-startTimeDiff).toList();
+                List<Long> decompilations = parser.findDecompilationStamps(methodDescriptor);
+                decompilations = decompilations.stream().map(e -> e-startTimeDiff).toList();
+                List<Map<String, Double>> percentageWindows = null;
+                var changes = findChanges(percentageWindows, arguments.delta, startTime, compilations, decompilations);
+                var inversions = findInversions(percentageWindows, arguments.delta, startTime, compilations, decompilations);
                 if (changes.isEmpty() && inversions.isEmpty()) {
                     continue;
                 }
                 StringBuilder res = formatAnalysisResult(callsite, changes, inversions);
                 // System.out.println(res);
                 try {
+                    resFile.createNewFile();
                     Files.writeString(resFile.toPath(), res.toString(), StandardOpenOption.APPEND);
                 } catch (IOException e) {
                     System.err.println(e.getMessage());
@@ -123,6 +134,18 @@ public class App {
         }
         System.out.println();
     }
+
+    private static String extractMethodDescriptor(String callsite){
+        String methodDescriptor = callsite.split(" ")[1];
+        methodDescriptor = methodDescriptor.replace("(", " (");
+        String[] split = methodDescriptor.split(" ");
+        String left = split[0];
+        String right = split[1];
+        left = left.replace(".", " ");
+        left = left.replace("/", ".");
+        return left + " " + right;
+    }
+
 
     private static File[] tryPartitioningLargeFiles(List<File> callsiteFiles) {
         int size = callsiteFiles.size();
@@ -269,52 +292,56 @@ public class App {
     
     private static void writeIntermediateFiles(File binaryFile) {
         try {
-            byte[] bytes = Files.readAllBytes(binaryFile.toPath());
-            ByteBuffer.allocate(Long.BYTES).getLong();
             File intermediateFolder = new File("result/");
             intermediateFolder.mkdir();
             
             Map<Long, List<Byte>> fileIdToBytes = new HashMap<>();
             int readBytes = 0;
-            for (int i = 0; i < bytes.length; i += 16) {
-                byte[] cs = new byte[8];
-                cs[4] = bytes[i];
-                cs[5] = bytes[i + 1];
-                cs[6] = bytes[i + 2];
-                cs[7] = bytes[i + 3];
-                long callsiteId = ByteBuffer.wrap(cs).getLong();
-                cs[4] = bytes[i + 4];
-                cs[5] = bytes[i + 5];
-                cs[6] = bytes[i + 6];
-                cs[7] = bytes[i + 7];
-                long classNameId = ByteBuffer.wrap(cs).getLong();
-                long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
-                if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
-                    break;
-                }
-                long m = callsiteId % 1000;
-                List<Byte> toAdd = new ArrayList<>();
-                for(byte b: Arrays.copyOfRange(bytes, i, i+16)){
-                    toAdd.add(b);
-                }
-                fileIdToBytes.computeIfAbsent(m, k-> new ArrayList<>()).addAll(toAdd);
-                readBytes += 16;
-                if(readBytes >= 128*1024*1024){
-                    for(Map.Entry<Long, List<Byte>> entry: fileIdToBytes.entrySet()){
-                        locks.get(entry.getKey()).lock();
-                        File csFile = new File(intermediateFolder, String.format("callsite_%s.txt", entry.getKey()));
-                        if(!csFile.exists()){
-                            csFile.createNewFile();
+            try(BufferedInputStream in = new BufferedInputStream(new FileInputStream(binaryFile.toString()))){
+                byte[] bytes = new byte[128*1024*1024];
+                int len;
+                outer: while((len = in.read(bytes)) != -1){
+                    for (int i = 0; i < len; i += 16) {
+                        byte[] cs = new byte[8];
+                        cs[4] = bytes[i];
+                        cs[5] = bytes[i + 1];
+                        cs[6] = bytes[i + 2];
+                        cs[7] = bytes[i + 3];
+                        long callsiteId = ByteBuffer.wrap(cs).getLong();
+                        cs[4] = bytes[i + 4];
+                        cs[5] = bytes[i + 5];
+                        cs[6] = bytes[i + 6];
+                        cs[7] = bytes[i + 7];
+                        long classNameId = ByteBuffer.wrap(cs).getLong();
+                        long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
+                        if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
+                            break outer;
                         }
-                        byte[] toWrite = new byte[entry.getValue().size()];
-                        int j = 0;
-                        for(Byte b: entry.getValue()){
-                            toWrite[j++] = b;
+                        long m = callsiteId % 1000;
+                        List<Byte> toAdd = new ArrayList<>();
+                        for(byte b: Arrays.copyOfRange(bytes, i, i+16)){
+                            toAdd.add(b);
                         }
-                        Files.write(csFile.toPath(), toWrite, StandardOpenOption.APPEND);
-                        locks.get(entry.getKey()).unlock();
+                        fileIdToBytes.computeIfAbsent(m, k-> new ArrayList<>()).addAll(toAdd);
+                        readBytes += 16;
+                        if(readBytes >= 128*1024*1024){
+                            for(Map.Entry<Long, List<Byte>> entry: fileIdToBytes.entrySet()){
+                                locks.get(entry.getKey()).lock();
+                                File csFile = new File(intermediateFolder, String.format("callsite_%s.txt", entry.getKey()));
+                                if(!csFile.exists()){
+                                    csFile.createNewFile();
+                                }
+                                byte[] toWrite = new byte[entry.getValue().size()];
+                                int j = 0;
+                                for(Byte b: entry.getValue()){
+                                    toWrite[j++] = b;
+                                }
+                                Files.write(csFile.toPath(), toWrite, StandardOpenOption.APPEND);
+                                locks.get(entry.getKey()).unlock();
+                            }
+                            fileIdToBytes.clear();
+                        }
                     }
-                    fileIdToBytes.clear();
                 }
             }
             for(Map.Entry<Long, List<Byte>> entry: fileIdToBytes.entrySet()){
@@ -459,12 +486,15 @@ public class App {
         }).toList();
     }
 
-    public record RatioChange(int window, String className, double before, double after, double diff) {
+    public record RatioChange(int window, String className, double before, double after, double diff, Long compilation, Long dec) {
     }
 
-    private static List<RatioChange> findChanges(List<Map<String, Double>> pw) {
+    private static List<RatioChange> findChanges(List<Map<String, Double>> pw, long window, long startTime,
+         List<Long> compilationTasks, List<Long> decompilations) {
         double threshold = 0.1;
         List<RatioChange> changes = new ArrayList<>();
+        int compilationIter = 0;
+        int decompilationIter = 0;
         for (int i = 0; i < pw.size() - 1; i++) {
             var w1 = pw.get(i);
             var w2 = pw.get(i + 1);
@@ -473,18 +503,30 @@ public class App {
                 var v2 = w2.get(k);
                 double diff = Math.abs(v1 - v2);
                 if (diff > threshold) {
-                    changes.add(new RatioChange(i, k, v1, v2, diff));
+                    Long currentCT = null;
+                    Long currentDec = null;
+                    if(compilationIter < compilationTasks.size() && startTime+i*window > startTime+compilationTasks.get(compilationIter)){
+                        currentCT = compilationTasks.get(compilationIter++);
+                    }
+                    if(decompilationIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decompilationIter)){
+                        currentDec = decompilations.get(decompilationIter);
+                    }
+
+                    changes.add(new RatioChange(i, k, v1, v2, diff, currentCT, currentDec));
                 }
             }
         }
         return changes;
     }
 
-    public record Inversion(int window1, int window2, String className1, String className2) {
+    public record Inversion(int window1, int window2, String className1, String className2, Long comp, Long dec) {
     }
 
-    private static List<Inversion> findInversions(List<Map<String, Double>> pw) {
+    private static List<Inversion> findInversions(List<Map<String, Double>> pw, long window, long startTime,
+         List<Long> compilationTasks, List<Long> decompilations) {
         List<Inversion> inversions = new ArrayList<>();
+        int compIter = 0;
+        int decIter = 0;
         for (int i = 0; i < pw.size() - 1; i++) {
             var w1 = pw.get(i);
             var w2 = pw.get(i + 1);
@@ -498,7 +540,15 @@ public class App {
                 Double valKey1Window2 = w2.get(k1);
                 Double valKey2Window2 = w2.get(k2);
                 if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
-                    inversions.add(new Inversion(i, i + 1, k1, k2));
+                    Long currentCT = null;
+                    Long currentDec = null;
+                    if(compIter< compilationTasks.size() && startTime+i*window > startTime+compilationTasks.get(compIter)){
+                        currentCT = compilationTasks.get(compIter++);
+                    }
+                    if(decIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decIter)){
+                        currentDec = decompilations.get(decIter);
+                    }
+                    inversions.add(new Inversion(i, i + 1, k1, k2, currentCT, currentDec));
                 }
             }
         }
@@ -511,6 +561,12 @@ public class App {
         if (!changes.isEmpty()) {
             result.append(String.format("%sChanges:\n", indent));
             for (RatioChange change : changes) {
+                if(change.compilation != null){
+                    result.append(String.format("%scompilation at: %s\n", indent.repeat(2), change.compilation));
+                }
+                if(change.dec!= null){
+                    result.append(String.format("%sdecompilation at: %s\n", indent.repeat(2), change.dec));
+                }
                 result.append(String.format("%s%s - window before: %s - window after: %s - diff: %s - before: %s - after: %s\n",
                         indent.repeat(2), change.className, change.window, change.window + 1, change.diff, change.before, change.after));
             }

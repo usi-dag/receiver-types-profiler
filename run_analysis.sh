@@ -31,6 +31,10 @@ esac
 
 ant -Ddislclass=profiler.Instrumentation -buildfile build.xml
 
+if [ ! -d result/ ]; then
+  mkdir result/
+fi
+
 for entry in "${benchmarks[@]}"; do
 
   for i in $(seq $2); do 
@@ -52,18 +56,20 @@ for entry in "${benchmarks[@]}"; do
     AGENT_PATH=lib/$ARCH/libdislagent.so
     DISL_BYPASS=lib/disl-bypass.jar
     PROFILER=build/profiler.jar
+    LOG_FILE=result/compiler_log_"$1"_"$entry"_"$i".xml
 
     $JAVA_HOME/bin/java -agentpath:$AGENT_PATH --patch-module java.base=$DISL_BYPASS \
     -Djava.security.manager=allow \
     --add-exports java.base/ch.usi.dag.disl.dynamicbypass=ALL-UNNAMED \
     -Xbootclasspath/a:$DISL_BYPASS:$PROFILER -noverify -cp $PROFILER \
     -Xmx6G -Xms6G \
+    -XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation -XX:LogFile=$LOG_FILE \
     -jar $BENCH $entry $FLAGS
 
     # exit 0
     # For some reason this sleep fixes a bug. I have no idea why nor how.
     # This is some of the jankiest fix ever made and it brings shame upon my family.
-    sleep 30
+    sleep 10
 
     $JAVA_HOME/bin/java -Xmx10G -classpath analysis/target/classes/ com.msde.app.App -i output/
 

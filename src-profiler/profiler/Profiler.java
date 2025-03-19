@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class Profiler{
     private final static long beginning;
+    private final static long start;
     private static long id = 0;
     public final static long length = 3*512*1024;
     private final static ConcurrentHashMap<String, Long> classNameToId = new ConcurrentHashMap<>();
@@ -24,6 +25,7 @@ public class Profiler{
 
     static {
       beginning = System.nanoTime();
+      start = System.currentTimeMillis();
     }
 
     private final static File outputDir;
@@ -115,7 +117,8 @@ public class Profiler{
               System.err.println(e.getMessage());
             }
             try{
-              Files.writeString(outputFile.toPath(), ""+Profiler.beginning/1000 , StandardOpenOption.APPEND);
+              Files.writeString(outputFile.toPath(), String.format("%s\n", Profiler.beginning/1000), StandardOpenOption.APPEND);
+              Files.writeString(outputFile.toPath(), ""+Profiler.start, StandardOpenOption.APPEND);
             }catch(IOException e){
               System.err.println(e.getMessage());
             }
