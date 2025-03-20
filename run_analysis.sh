@@ -71,7 +71,7 @@ for entry in "${benchmarks[@]}"; do
     # This is some of the jankiest fix ever made and it brings shame upon my family.
     sleep 10
 
-    $JAVA_HOME/bin/java -Xmx10G -classpath analysis/target/classes/ com.msde.app.App -i output/
+    $JAVA_HOME/bin/java -Xmx10G -classpath analysis/target/classes/ com.msde.app.App -i output/ -c $LOG_FILE
 
     ARCHIVENAME="$1"_"$entry"_"$i".tar.gz
     echo $ARCHIVENAME

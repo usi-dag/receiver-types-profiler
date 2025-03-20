@@ -35,24 +35,29 @@ public class App {
         
     }
 
-    record Args(File inputFolder, long delta){}
+    record Args(File inputFolder, long delta, File compilerLog){}
 
     private static Args parseArgs(String[] args){
-        Args parsedArgs = new Args(new File("/home/ubuntu/receiver-types-profiler/output"), 1000L);
+        Args parsedArgs = new Args(new File("/home/ubuntu/receiver-types-profiler/output"), 1000L, new File("/home/ubuntu/receiver-types-profiler/compiler_log.xml"));
         int i=0;
         while(i<args.length){
             String current = args[i++];
             switch(current){
                 case "--input-folder", "-i" -> {
                     File inputFolder = new File(args[i++]);
-                    parsedArgs = new Args(inputFolder, parsedArgs.delta);
+                    parsedArgs = new Args(inputFolder, parsedArgs.delta, parsedArgs.compilerLog);
                 }
                 case "--delta", "-d" -> {
                     long delta = Long.parseLong(args[i++]);
-                    parsedArgs = new Args(parsedArgs.inputFolder, delta);
+                    parsedArgs = new Args(parsedArgs.inputFolder, delta, parsedArgs.compilerLog);
+                }
+                case "--compile-log", "-c" -> {
+                    File compilerLog = new File(args[i++]);
+                    parsedArgs = new Args(parsedArgs.inputFolder, parsedArgs.delta, compilerLog);
+                    
                 }
                 default -> {
-                    System.out.println("usage: [--help] [--input-folder folder] [--delta time]"); 
+                    System.out.println("usage: [--help] [--input-folder folder] [--delta time] [--compile-log file]"); 
                     System.exit(0);
                 }
             }
@@ -83,6 +88,7 @@ public class App {
         System.out.println("After partitioning large files.");
         int i = 0;
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
+        // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.getName() == "callsite_114.txt").toArray(File[]::new);
         XmlParser parser = new XmlParser(new File("compiler_log.xml"));
         Long vmStartTime = parser.getVmStartTime();
         Long startTimeDiff = startTime-vmStartTime;
@@ -95,13 +101,9 @@ public class App {
                 continue;
             }
             List<Long> info = maybeInfo.get();
-            File resFile = new File(resultFolder, String.format("result_%s.txt", i++));
-            // try {
-            //     boolean _e = resFile.createNewFile();
-            // } catch (IOException e) {
-            //     System.err.println(e.getMessage());
-            //     return;
-            // }
+            String callsiteFileNumber = cf.getName().replace("callsite_", "").replace(".txt", "");
+            File resFile = new File(resultFolder, String.format("result_%s.txt", callsiteFileNumber));
+            i++;
             var callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
             for (var entry : callsiteInfo.entrySet()) {
                 String callsite = entry.getKey();
@@ -110,13 +112,13 @@ public class App {
                     System.exit(1);
                 }
                 // System.out.println("Callsite: " + callsite);
-                // var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
+                var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
                 String methodDescriptor = extractMethodDescriptor(callsite);
                 List<Long> compilations = parser.findCompilationStamps(methodDescriptor);
                 compilations = compilations.stream().map(e -> e-startTimeDiff).toList();
                 List<Long> decompilations = parser.findDecompilationStamps(methodDescriptor);
                 decompilations = decompilations.stream().map(e -> e-startTimeDiff).toList();
-                List<Map<String, Double>> percentageWindows = null;
+                // List<Map<String, Double>> percentageWindows = null;
                 var changes = findChanges(percentageWindows, arguments.delta, startTime, compilations, decompilations);
                 var inversions = findInversions(percentageWindows, arguments.delta, startTime, compilations, decompilations);
                 if (changes.isEmpty() && inversions.isEmpty()) {
@@ -243,10 +245,9 @@ public class App {
         List<Thread> threads = new ArrayList<>();
         int i = 0;
         for (List<File> binaryFiles : partitions) {
-            int alpaca = i++;
+            int id = i++;
             Thread t = new Thread(() -> {
                 int current = 0;
-                int id = alpaca;
                 for (File binaryFile : binaryFiles) {
                     writeIntermediateFiles(binaryFile);
                     current++;
@@ -369,9 +370,15 @@ public class App {
 
     private static InstrumentationFiles getInstrumentationFiles(File inputFolder) {
         File[] partials = inputFolder.listFiles((el) -> el.getName().startsWith("partial"));
-        File className = inputFolder.listFiles((el) -> el.getName().startsWith("className"))[0];
-        File callsite = inputFolder.listFiles((el) -> el.getName().startsWith("callsite"))[0];
-        File startTime = inputFolder.listFiles((el) -> el.getName().startsWith("start_time"))[0];
+        File[] classNames = inputFolder.listFiles((el) -> el.getName().startsWith("className"));
+        assert classNames != null;
+        File className = classNames[0];
+        File[] callsites = inputFolder.listFiles((el) -> el.getName().startsWith("callsite"));
+        assert callsites != null;
+        File callsite = callsites[0];
+        File[] startTimes = inputFolder.listFiles((el) -> el.getName().startsWith("start_time"));
+        assert startTimes != null;
+        File startTime = startTimes[0];
         return new InstrumentationFiles(partials, className, callsite, startTime);
     }
 
@@ -389,7 +396,7 @@ public class App {
 
     private static long getStartTime(File startTimeFile) {
         try {
-            String startTime = Files.readAllLines(startTimeFile.toPath()).get(0);
+            String startTime = Files.readAllLines(startTimeFile.toPath()).get(1);
             return Long.parseLong(startTime);
 
         } catch (IOException e) {
@@ -457,7 +464,6 @@ public class App {
         // returns a list of windows which shows the percentages of the calls on each receiver type in that window
         long windowStart = info.values().stream().flatMap(List::stream).mapToLong(e -> e).min().orElse(0);
         long end = info.values().stream().flatMap(List::stream).mapToLong(e -> e).max().orElse(Long.MAX_VALUE);
-        int i =0;
         long nIteration = ((end-windowStart)/timeFrame) + 1;
         List<Map<String, List<Long>>> windows = new ArrayList<>();
         for(int j = 0; j<nIteration; j++){
@@ -477,8 +483,6 @@ public class App {
                 windows.get(j).put(el.getKey(), partitionedInfo.get(j));
             }
         }
-        // [{k: len(v) / sum(map(len, e.values())) for k, v in e.items()} for e in windows]
-        // ["alpaca": [1,2,3], "coniglio":[4,5,6]] -> ["alpaca": 2, "coniglio": 7.5]
         return windows.stream().map(m -> {
             double tot = m.values().stream().mapToDouble(List::size).sum();
             return m.entrySet().stream().map(e -> new AbstractMap.SimpleEntry<>(e.getKey(), e.getValue().size() / tot))
@@ -509,7 +513,7 @@ public class App {
                         currentCT = compilationTasks.get(compilationIter++);
                     }
                     if(decompilationIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decompilationIter)){
-                        currentDec = decompilations.get(decompilationIter);
+                        currentDec = decompilations.get(decompilationIter++);
                     }
 
                     changes.add(new RatioChange(i, k, v1, v2, diff, currentCT, currentDec));
@@ -546,7 +550,7 @@ public class App {
                         currentCT = compilationTasks.get(compIter++);
                     }
                     if(decIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decIter)){
-                        currentDec = decompilations.get(decIter);
+                        currentDec = decompilations.get(decIter++);
                     }
                     inversions.add(new Inversion(i, i + 1, k1, k2, currentCT, currentDec));
                 }
@@ -576,6 +580,12 @@ public class App {
         }
         result.append(String.format("%sInversions:\n", indent));
         for (Inversion inversion : inversions) {
+            if(inversion.comp!= null){
+                result.append(String.format("%scompilation at: %s\n", indent.repeat(2), inversion.comp));
+            }
+            if(inversion.dec!= null){
+                result.append(String.format("%sdecompilation at: %s\n", indent.repeat(2), inversion.dec));
+            }
             result.append(String.format("%s%s - %s - windows: %s - %s\n",
                     indent.repeat(2), inversion.className1, inversion.className2, inversion.window1, inversion.window2));
         }

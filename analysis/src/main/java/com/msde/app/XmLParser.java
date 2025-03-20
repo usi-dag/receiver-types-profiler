@@ -55,7 +55,7 @@ class XmlParser {
       NodeList res = (NodeList) this.xpath.compile(expression).evaluate(this.doc, XPathConstants.NODESET);
       List<Long> toReturn = new ArrayList<>();
       for (int i = 0; i < res.getLength(); i++) {
-        String value = res.item(0).getAttributes().getNamedItem("stamp").getNodeValue();
+        String value = res.item(i).getAttributes().getNamedItem("stamp").getNodeValue();
         value = value.replace(".", "");
         toReturn.add(Long.decode(value));
 
@@ -75,14 +75,14 @@ class XmlParser {
       List<Long> toReturn = new ArrayList<>();
       List<String> compileIds = new ArrayList<>();
       for (int i = 0; i < res.getLength(); i++) {
-        String value = res.item(0).getAttributes().getNamedItem("compile_id").getNodeValue();
+        String value = res.item(i).getAttributes().getNamedItem("compile_id").getNodeValue();
         compileIds.add(value);
       }
       for(String compileId: compileIds){
         String nonEntrantExpression = String.format("//make_not_entrant[@compile_id='%s']", compileId);
         NodeList nonEntrantNodes = (NodeList) this.xpath.compile(nonEntrantExpression).evaluate(this.doc, XPathConstants.NODESET);
         for(int i=0; i<nonEntrantNodes.getLength(); i++){
-          String value = res.item(0).getAttributes().getNamedItem("stamp").getNodeValue();
+          String value = res.item(i).getAttributes().getNamedItem("stamp").getNodeValue();
           value = value.replace(".", "");
           toReturn.add(Long.decode(value));
           
