@@ -11,6 +11,7 @@ import org.objectweb.asm.tree.FrameNode;
 import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.IntInsnNode;
 import org.objectweb.asm.tree.LabelNode;
+import org.objectweb.asm.tree.LineNumberNode;
 import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.InsnNode;
@@ -79,6 +80,27 @@ public class CustomContext extends InstructionStaticContext{
         ClassNode cn = staticContextData.getClassNode();
         String name = JavaNames.methodUniqueName(cn.name, mn.name, mn.desc);
         String callsite = index + " " + name;
+        InsnList list = staticContextData.getMethodNode().instructions;
+        AbstractInsnNode[] instructions = Arrays.stream(list.toArray()).filter(n -> {
+          // n.getOpcode() == -1
+          switch(n){
+            case LabelNode node -> {return false;}
+            case FrameNode node -> {return false;}
+            case LineNumberNode node -> {return false;}
+            default -> {
+            return true;
+          }
+          }
+        }).toArray(AbstractInsnNode[]::new);
+        AbstractInsnNode node =instructions[index];
+        switch(node){
+            case MethodInsnNode n -> {
+              Type type = Type.getMethodType(n.desc);
+              int argSize = type.getArgumentsAndReturnSizes() >> 2;
+              callsite += " "+n.name+n.desc;
+            }
+            default -> {}
+        }
         if(!csToId.containsKey(callsite)){
             csToId.put(callsite, id++);
         }

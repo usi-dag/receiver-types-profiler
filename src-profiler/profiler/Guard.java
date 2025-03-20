@@ -10,10 +10,6 @@ public class Guard{
       if(mc.isMethodStatic() || mc.isMethodConstructor() || mc.isMethodPrivate() || mc.isMethodFinal()){
         return false;
       }
-      if(csc.getInternalName().contains("kafka")){
-        // System.out.println(csc.getInternalName());
-      }
-      // return csc.getInternalName().contains("kafka");
       return true;
     }
 

@@ -7,20 +7,19 @@ function quit(){
 
 
 if [ "$#" -ne 2 ]; then
-	echo "Usage: $0 <dacapo or ren> <number of iterations per benchmark>"
 	quit
 fi
 
 
 case "$1" in
     "dacapo")
-        FLAGS="-n $2"
+        FLAGS="-n 1"
     		BENCH=dacapo-23.11-MR2-chopin.jar 
-        benchmarks=(avrora batik biojava cassandra eclipse fop graphchi h2 h2o jme jython kafka luindex lusearch pmd spring sunflow tomcat tradebeans tradesoap xalan zxing)
-        # benchmarks=(jme)
+        # benchmarks=(avrora batik biojava cassandra eclipse fop graphchi h2 h2o jme jython kafka luindex lusearch pmd spring sunflow tomcat tradebeans tradesoap xalan zxing)
+        benchmarks=(jme)
         ;;
     "ren")
-    		FLAGS="-r $2"
+    		FLAGS="-r 1"
         BENCH=renaissance-gpl-0.16.0.jar 
         benchmarks=(scrabble page-rank future-genetic akka-uct movie-lens scala-doku chi-square fj-kmeans rx-scrabble db-shootout neo4j-analytics finagle-http reactors dec-tree scala-stm-bench7 naive-bayes als par-mnemonics scala-kmeans philosophers log-regression gauss-mix mnemonics dotty finagle-chirper)
         ;;
@@ -32,45 +31,61 @@ esac
 
 ant -Ddislclass=profiler.Instrumentation -buildfile build.xml
 
+if [ ! -d result/ ]; then
+  mkdir result/
+fi
+
 for entry in "${benchmarks[@]}"; do
 
-  processid=`jps | grep DiSLServer | cut -d " " -f1`
+  for i in $(seq $2); do 
+    
+    processid=`$JAVA_HOME/bin/jps | grep DiSLServer | cut -d " " -f1`
 
-  if [ -n "$processid" ]; then
-    kill -9 "$processid"
-    echo "Old DiSLServer killed"
-  fi
+    if [ -n "$processid" ]; then
+      kill -9 "$processid"
+      echo "Old DiSLServer killed"
+    fi
 
-  ./startDiSLServer.sh
+    ./startDiSLServer.sh
 
-  sleep 2
+    sleep 2
+
+    ARCH=`uname -p`
 
 
-  AGENT_PATH=lib/aarch64/libdislagent.so
-  DISL_BYPASS=lib/disl-bypass.jar
-  PROFILER=build/profiler.jar
+    AGENT_PATH=lib/$ARCH/libdislagent.so
+    DISL_BYPASS=lib/disl-bypass.jar
+    PROFILER=build/profiler.jar
+    LOG_FILE=result/compiler_log_"$1"_"$entry"_"$i".xml
 
-  java -agentpath:$AGENT_PATH --patch-module java.base=$DISL_BYPASS \
-  -Djava.security.manager=allow \
-  --add-exports java.base/ch.usi.dag.disl.dynamicbypass=ALL-UNNAMED \
-  -Xbootclasspath/a:$DISL_BYPASS:$PROFILER -noverify -cp $PROFILER \
-  -Xmx6G -Xms6G \
-  -jar $BENCH $entry $FLAGS
+    $JAVA_HOME/bin/java -agentpath:$AGENT_PATH --patch-module java.base=$DISL_BYPASS \
+    -Djava.security.manager=allow \
+    --add-exports java.base/ch.usi.dag.disl.dynamicbypass=ALL-UNNAMED \
+    -Xbootclasspath/a:$DISL_BYPASS:$PROFILER -noverify -cp $PROFILER \
+    -Xmx6G -Xms6G \
+    -XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation -XX:LogFile=$LOG_FILE \
+    -jar $BENCH $entry $FLAGS
 
-  java -Xmx10G -classpath analysis/target/classes/ com.msde.app.App -i output/
+    # exit 0
+    # For some reason this sleep fixes a bug. I have no idea why nor how.
+    # This is some of the jankiest fix ever made and it brings shame upon my family.
+    sleep 10
 
-  ARCHIVENAME="$1"_"$entry".tar.gz
-  echo $ARCHIVENAME
-  tar --use-compress-program="pigz -k" -cf $ARCHIVENAME result
+    $JAVA_HOME/bin/java -Xmx10G -classpath analysis/target/classes/ com.msde.app.App -i output/ -c $LOG_FILE
 
-  ARCHIVEDIR=/mnt/hdd/archives/
-  # ARCHIVEDIR=archives/
+    ARCHIVENAME="$1"_"$entry"_"$i".tar.gz
+    echo $ARCHIVENAME
+    tar --use-compress-program="pigz -k" -cf $ARCHIVENAME result
 
-  if [ ! -d "archives/" ]; then
-    mkdir $ARCHIVEDIR
-  fi
+    # ARCHIVEDIR=/mnt/hdd/archives/
+    ARCHIVEDIR=archives/
 
-  mv $ARCHIVENAME $ARCHIVEDIR
-  rm output/*
-  rm result/*
+    if [ ! -d $ARCHIVEDIR ]; then
+      mkdir $ARCHIVEDIR
+    fi
+
+    mv $ARCHIVENAME $ARCHIVEDIR
+    # rm output/*
+    # rm result/*
+  done
 done
