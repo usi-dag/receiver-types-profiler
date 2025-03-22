@@ -88,7 +88,7 @@ public class App {
         System.out.println("After partitioning large files.");
         int i = 0;
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
-        // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.getName() == "callsite_114.txt").toArray(File[]::new);
+        callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.getName().equals("callsite_794.txt")).toArray(File[]::new);
         XmlParser parser = new XmlParser(new File("compiler_log.xml"));
         Long vmStartTime = parser.getVmStartTime();
         Long startTimeDiff = startTime-vmStartTime;
@@ -103,6 +103,9 @@ public class App {
             List<Long> info = maybeInfo.get();
             String callsiteFileNumber = cf.getName().replace("callsite_", "").replace(".txt", "");
             File resFile = new File(resultFolder, String.format("result_%s.txt", callsiteFileNumber));
+            if(resFile.exists()){
+                resFile.delete();
+            }
             i++;
             var callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
             for (var entry : callsiteInfo.entrySet()) {
@@ -114,17 +117,19 @@ public class App {
                 // System.out.println("Callsite: " + callsite);
                 var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
                 String methodDescriptor = extractMethodDescriptor(callsite);
+                // compilations are given in milliseconds from the start time while
+                // the instrumentation is kept in microseconds.
                 List<Long> compilations = parser.findCompilationStamps(methodDescriptor);
-                compilations = compilations.stream().map(e -> e-startTimeDiff).toList();
+                compilations = compilations.stream().map(e -> (e-startTimeDiff)*1000).toList();
                 List<Long> decompilations = parser.findDecompilationStamps(methodDescriptor);
-                decompilations = decompilations.stream().map(e -> e-startTimeDiff).toList();
+                decompilations = decompilations.stream().map(e -> (e-startTimeDiff)*1000).toList();
                 // List<Map<String, Double>> percentageWindows = null;
-                var changes = findChanges(percentageWindows, arguments.delta, startTime, compilations, decompilations);
-                var inversions = findInversions(percentageWindows, arguments.delta, startTime, compilations, decompilations);
+                var changes = findChanges(percentageWindows.windows, arguments.delta, startTime, compilations, decompilations);
+                var inversions = findInversions(percentageWindows.windows, arguments.delta, startTime, compilations, decompilations);
                 if (changes.isEmpty() && inversions.isEmpty()) {
                     continue;
                 }
-                StringBuilder res = formatAnalysisResult(callsite, changes, inversions);
+                StringBuilder res = formatAnalysisResult(callsite, changes, inversions, percentageWindows.start);
                 // System.out.println(res);
                 try {
                     resFile.createNewFile();
@@ -459,8 +464,9 @@ public class App {
 
     }
 
+    record PartitionedWindows(List<Map<String, Double>> windows, long start, long end){}
 
-    private static List<Map<String, Double>> analyseCallsite(Map<String, List<Long>> info, long timeFrame) {
+    private static PartitionedWindows analyseCallsite(Map<String, List<Long>> info, long timeFrame) {
         // returns a list of windows which shows the percentages of the calls on each receiver type in that window
         long windowStart = info.values().stream().flatMap(List::stream).mapToLong(e -> e).min().orElse(0);
         long end = info.values().stream().flatMap(List::stream).mapToLong(e -> e).max().orElse(Long.MAX_VALUE);
@@ -483,11 +489,12 @@ public class App {
                 windows.get(j).put(el.getKey(), partitionedInfo.get(j));
             }
         }
-        return windows.stream().map(m -> {
+        var partitionedWindows = windows.stream().map(m -> {
             double tot = m.values().stream().mapToDouble(List::size).sum();
-            return m.entrySet().stream().map(e -> new AbstractMap.SimpleEntry<>(e.getKey(), e.getValue().size() / tot))
+            return m.entrySet().stream().map(e -> new AbstractMap.SimpleEntry<>(e.getKey(), tot == 0? 0: e.getValue().size() / tot))
                     .collect(Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
         }).toList();
+        return new PartitionedWindows(partitionedWindows, windowStart, end);
     }
 
     public record RatioChange(int window, String className, double before, double after, double diff, Long compilation, Long dec) {
@@ -523,7 +530,8 @@ public class App {
         return changes;
     }
 
-    public record Inversion(int window1, int window2, String className1, String className2, Long comp, Long dec) {
+    public record Inversion(int window1, int window2, String className1, String className2, Double valKey1Window1,
+                            Double valKey2Window1, Double valKey1Window2, Double valKey2Window2, Long comp, Long dec) {
     }
 
     private static List<Inversion> findInversions(List<Map<String, Double>> pw, long window, long startTime,
@@ -552,18 +560,19 @@ public class App {
                     if(decIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decIter)){
                         currentDec = decompilations.get(decIter++);
                     }
-                    inversions.add(new Inversion(i, i + 1, k1, k2, currentCT, currentDec));
+                    inversions.add(new Inversion(i, i + 1, k1, k2, valKey1Window1, valKey2Window1,
+                            valKey1Window2, valKey2Window2, currentCT, currentDec));
                 }
             }
         }
         return inversions;
     }
 
-    private static StringBuilder formatAnalysisResult(String cs, List<RatioChange> changes, List<Inversion> inversions) {
+    private static StringBuilder formatAnalysisResult(String cs, List<RatioChange> changes, List<Inversion> inversions, long start) {
         StringBuilder result = new StringBuilder(String.format("Callsite: %s\n", cs));
         String indent = "    ";
         if (!changes.isEmpty()) {
-            result.append(String.format("%sChanges:\n", indent));
+            result.append(String.format("%sChanges[start time = %s]:\n", indent, start));
             for (RatioChange change : changes) {
                 if(change.compilation != null){
                     result.append(String.format("%scompilation at: %s\n", indent.repeat(2), change.compilation));
@@ -578,7 +587,7 @@ public class App {
         if (inversions.isEmpty()) {
             return result;
         }
-        result.append(String.format("%sInversions:\n", indent));
+        result.append(String.format("%sInversions[start time = %s]:\n", indent, start));
         for (Inversion inversion : inversions) {
             if(inversion.comp!= null){
                 result.append(String.format("%scompilation at: %s\n", indent.repeat(2), inversion.comp));
@@ -588,6 +597,10 @@ public class App {
             }
             result.append(String.format("%s%s - %s - windows: %s - %s\n",
                     indent.repeat(2), inversion.className1, inversion.className2, inversion.window1, inversion.window2));
+            result.append(String.format("%sFirst Window: %s - %s, %s - %s\n",
+                    indent.repeat(2), inversion.className1, inversion.className2, inversion.valKey1Window1, inversion.valKey2Window1));
+            result.append(String.format("%sSecond Window: %s - %s, %s - %s\n",
+                    indent.repeat(2), inversion.className1, inversion.className2, inversion.valKey1Window2, inversion.valKey2Window2));
         }
         return result;
 

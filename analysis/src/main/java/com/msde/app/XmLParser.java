@@ -82,7 +82,7 @@ class XmlParser {
         String nonEntrantExpression = String.format("//make_not_entrant[@compile_id='%s']", compileId);
         NodeList nonEntrantNodes = (NodeList) this.xpath.compile(nonEntrantExpression).evaluate(this.doc, XPathConstants.NODESET);
         for(int i=0; i<nonEntrantNodes.getLength(); i++){
-          String value = res.item(i).getAttributes().getNamedItem("stamp").getNodeValue();
+          String value = nonEntrantNodes.item(i).getAttributes().getNamedItem("stamp").getNodeValue();
           value = value.replace(".", "");
           toReturn.add(Long.decode(value));
           
