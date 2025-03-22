@@ -120,9 +120,9 @@ public class App {
                 // compilations are given in milliseconds from the start time while
                 // the instrumentation is kept in microseconds.
                 List<Long> compilations = parser.findCompilationStamps(methodDescriptor);
-                compilations = compilations.stream().map(e -> (e-startTimeDiff)*1000).toList();
+                compilations = compilations.stream().map(e -> (e-startTimeDiff)*1000).sorted().toList();
                 List<Long> decompilations = parser.findDecompilationStamps(methodDescriptor);
-                decompilations = decompilations.stream().map(e -> (e-startTimeDiff)*1000).toList();
+                decompilations = decompilations.stream().map(e -> (e-startTimeDiff)*1000).sorted().toList();
                 // List<Map<String, Double>> percentageWindows = null;
                 var changes = findChanges(percentageWindows.windows, arguments.delta, startTime, compilations, decompilations);
                 var inversions = findInversions(percentageWindows.windows, arguments.delta, startTime, compilations, decompilations);
