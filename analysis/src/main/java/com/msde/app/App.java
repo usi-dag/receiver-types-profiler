@@ -129,7 +129,7 @@ public class App {
                 if (changes.isEmpty() && inversions.isEmpty()) {
                     continue;
                 }
-                StringBuilder res = formatAnalysisResult(callsite, changes, inversions, percentageWindows.start);
+                StringBuilder res = formatAnalysisResult(callsite, changes, inversions, percentageWindows.start, arguments.delta);
                 // System.out.println(res);
                 try {
                     resFile.createNewFile();
@@ -497,13 +497,44 @@ public class App {
         return new PartitionedWindows(partitionedWindows, windowStart, end);
     }
 
-    public record RatioChange(int window, String className, double before, double after, double diff, Long compilation, Long dec) {
+    public interface PrintInformation{
+        public String[] formatInformation();
     }
 
-    private static List<RatioChange> findChanges(List<Map<String, Double>> pw, long window, long startTime,
+    public record RatioChange(int window, String className, double before,
+        double after, double diff) implements PrintInformation{
+
+        @Override
+        public String[] formatInformation(){
+            String[] result = new String[1];
+            result[0] = String.format("%s - window before: %s - window after: %s - diff: %s - before: %s - after: %s\n",
+                this.className, this.window, this.window + 1, this.diff, this.before, this.after);
+            return result;
+        }
+    }
+
+    public record Compilation(long time) implements PrintInformation{
+        @Override
+        public String[] formatInformation(){
+            String[] result = new String[1];
+            result[0] = String.format("Compilation at: %s\n", this.time);
+            return result;
+        }
+    }
+
+    public record Decompilation(long time) implements PrintInformation{
+        @Override
+        public String[] formatInformation(){
+            String[] result = new String[1];
+            result[0] = String.format("Decompilation at: %s\n", this.time);
+            return result;
+        }
+    }
+    
+    private static List<PrintInformation> findChanges(List<Map<String, Double>> pw, long window, long startTime,
          List<Long> compilationTasks, List<Long> decompilations) {
         double threshold = 0.1;
-        List<RatioChange> changes = new ArrayList<>();
+        List<PrintInformation> changes = new ArrayList<>();
         int compilationIter = 0;
         int decompilationIter = 0;
         for (int i = 0; i < pw.size() - 1; i++) {
@@ -513,17 +544,14 @@ public class App {
                 var v1 = w1.get(k);
                 var v2 = w2.get(k);
                 double diff = Math.abs(v1 - v2);
+                if(compilationIter < compilationTasks.size() && startTime+i*window > startTime+compilationTasks.get(compilationIter)){
+                    changes.add(new Compilation(compilationTasks.get(compilationIter++)));
+                }
+                if(decompilationIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decompilationIter)){
+                    changes.add(new Decompilation(decompilations.get(decompilationIter++)));
+                }
                 if (diff > threshold) {
-                    Long currentCT = null;
-                    Long currentDec = null;
-                    if(compilationIter < compilationTasks.size() && startTime+i*window > startTime+compilationTasks.get(compilationIter)){
-                        currentCT = compilationTasks.get(compilationIter++);
-                    }
-                    if(decompilationIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decompilationIter)){
-                        currentDec = decompilations.get(decompilationIter++);
-                    }
-
-                    changes.add(new RatioChange(i, k, v1, v2, diff, currentCT, currentDec));
+                    changes.add(new RatioChange(i, k, v1, v2, diff));
                 }
             }
         }
@@ -531,12 +559,21 @@ public class App {
     }
 
     public record Inversion(int window1, int window2, String className1, String className2, Double valKey1Window1,
-                            Double valKey2Window1, Double valKey1Window2, Double valKey2Window2, Long comp, Long dec) {
+                            Double valKey2Window1, Double valKey1Window2, Double valKey2Window2) implements PrintInformation{
+                            @Override
+                            public String[] formatInformation(){
+                                String[] result = new String[3];
+                                
+                                result[0] = String.format("%s - %s - windows: %s - %s\n", this.className1, this.className2, this.window1, this.window2);
+                                result[1] = String.format("First Window: %s - %s, %s - %s\n", this.className1, this.className2, this.valKey1Window1, this.valKey2Window1);
+                                result[2] = String.format("Second Window: %s - %s, %s - %s\n", this.className1, this.className2, this.valKey1Window2, this.valKey2Window2);
+                                return result;
+                            }
     }
 
-    private static List<Inversion> findInversions(List<Map<String, Double>> pw, long window, long startTime,
+    private static List<PrintInformation> findInversions(List<Map<String, Double>> pw, long window, long startTime,
          List<Long> compilationTasks, List<Long> decompilations) {
-        List<Inversion> inversions = new ArrayList<>();
+        List<PrintInformation> inversions = new ArrayList<>();
         int compIter = 0;
         int decIter = 0;
         for (int i = 0; i < pw.size() - 1; i++) {
@@ -551,56 +588,38 @@ public class App {
                 Double valKey2Window1 = w1.get(k2);
                 Double valKey1Window2 = w2.get(k1);
                 Double valKey2Window2 = w2.get(k2);
+                if(compIter< compilationTasks.size() && startTime+i*window > startTime+compilationTasks.get(compIter)){
+                    inversions.add(new Compilation(compilationTasks.get(compIter++)));
+                }
+                if(decIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decIter)){
+                    inversions.add(new Decompilation(decompilations.get(decIter++)));
+                }
                 if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
-                    Long currentCT = null;
-                    Long currentDec = null;
-                    if(compIter< compilationTasks.size() && startTime+i*window > startTime+compilationTasks.get(compIter)){
-                        currentCT = compilationTasks.get(compIter++);
-                    }
-                    if(decIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decIter)){
-                        currentDec = decompilations.get(decIter++);
-                    }
                     inversions.add(new Inversion(i, i + 1, k1, k2, valKey1Window1, valKey2Window1,
-                            valKey1Window2, valKey2Window2, currentCT, currentDec));
+                            valKey1Window2, valKey2Window2));
                 }
             }
         }
         return inversions;
     }
 
-    private static StringBuilder formatAnalysisResult(String cs, List<RatioChange> changes, List<Inversion> inversions, long start) {
+    private static StringBuilder formatAnalysisResult(String cs, List<PrintInformation> changes, List<PrintInformation> inversions, long start, long delta) {
         StringBuilder result = new StringBuilder(String.format("Callsite: %s\n", cs));
         String indent = "    ";
         if (!changes.isEmpty()) {
-            result.append(String.format("%sChanges[start time = %s]:\n", indent, start));
-            for (RatioChange change : changes) {
-                if(change.compilation != null){
-                    result.append(String.format("%scompilation at: %s\n", indent.repeat(2), change.compilation));
-                }
-                if(change.dec!= null){
-                    result.append(String.format("%sdecompilation at: %s\n", indent.repeat(2), change.dec));
-                }
-                result.append(String.format("%s%s - window before: %s - window after: %s - diff: %s - before: %s - after: %s\n",
-                        indent.repeat(2), change.className, change.window, change.window + 1, change.diff, change.before, change.after));
+            result.append(String.format("%sChanges[start time = %s, window size = %s]:\n", indent, start, delta));
+            for (PrintInformation change : changes) {
+                result.append(String.format("%s%s", indent.repeat(2), change.formatInformation()[0]));
             }
         }
         if (inversions.isEmpty()) {
             return result;
         }
-        result.append(String.format("%sInversions[start time = %s]:\n", indent, start));
-        for (Inversion inversion : inversions) {
-            if(inversion.comp!= null){
-                result.append(String.format("%scompilation at: %s\n", indent.repeat(2), inversion.comp));
+        result.append(String.format("%sInversions[start time = %s, window size = %s]:\n", indent, start, delta));
+        for (PrintInformation inversion : inversions) {
+            for(String s: inversion.formatInformation()){
+               result.append(String.format("%s%s", indent.repeat(2), s));
             }
-            if(inversion.dec!= null){
-                result.append(String.format("%sdecompilation at: %s\n", indent.repeat(2), inversion.dec));
-            }
-            result.append(String.format("%s%s - %s - windows: %s - %s\n",
-                    indent.repeat(2), inversion.className1, inversion.className2, inversion.window1, inversion.window2));
-            result.append(String.format("%sFirst Window: %s - %s, %s - %s\n",
-                    indent.repeat(2), inversion.className1, inversion.className2, inversion.valKey1Window1, inversion.valKey2Window1));
-            result.append(String.format("%sSecond Window: %s - %s, %s - %s\n",
-                    indent.repeat(2), inversion.className1, inversion.className2, inversion.valKey1Window2, inversion.valKey2Window2));
         }
         return result;
 
