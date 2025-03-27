@@ -89,7 +89,7 @@ public class App {
         int i = 0;
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
         callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.getName().equals("callsite_794.txt")).toArray(File[]::new);
-        XmlParser parser = new XmlParser(new File("compiler_log.xml"));
+        XmlParser parser = new XmlParser(arguments.compilerLog);
         Long vmStartTime = parser.getVmStartTime();
         Long startTimeDiff = startTime-vmStartTime;
         for(File cf: callsiteFiles){
@@ -124,8 +124,8 @@ public class App {
                 List<Long> decompilations = parser.findDecompilationStamps(methodDescriptor);
                 decompilations = decompilations.stream().map(e -> (e-startTimeDiff)*1000).sorted().toList();
                 // List<Map<String, Double>> percentageWindows = null;
-                var changes = findChanges(percentageWindows.windows, arguments.delta, startTime, compilations, decompilations);
-                var inversions = findInversions(percentageWindows.windows, arguments.delta, startTime, compilations, decompilations);
+                var changes = findChanges(percentageWindows, arguments.delta, startTime, compilations, decompilations);
+                var inversions = findInversions(percentageWindows, arguments.delta, startTime, compilations, decompilations);
                 if (changes.isEmpty() && inversions.isEmpty()) {
                     continue;
                 }
@@ -531,12 +531,15 @@ public class App {
         }
     }
     
-    private static List<PrintInformation> findChanges(List<Map<String, Double>> pw, long window, long startTime,
+    private static List<PrintInformation> findChanges(PartitionedWindows windows, long window, long startTime,
          List<Long> compilationTasks, List<Long> decompilations) {
+        
+        List<Map<String, Double>> pw = windows.windows;
         double threshold = 0.1;
         List<PrintInformation> changes = new ArrayList<>();
         int compilationIter = 0;
         int decompilationIter = 0;
+        int offset = (int) (windows.start/window);
         for (int i = 0; i < pw.size() - 1; i++) {
             var w1 = pw.get(i);
             var w2 = pw.get(i + 1);
@@ -551,7 +554,7 @@ public class App {
                     changes.add(new Decompilation(decompilations.get(decompilationIter++)));
                 }
                 if (diff > threshold) {
-                    changes.add(new RatioChange(i, k, v1, v2, diff));
+                    changes.add(new RatioChange(offset+i, k, v1, v2, diff));
                 }
             }
         }
@@ -571,9 +574,11 @@ public class App {
                             }
     }
 
-    private static List<PrintInformation> findInversions(List<Map<String, Double>> pw, long window, long startTime,
+    private static List<PrintInformation> findInversions(PartitionedWindows windows, long window, long startTime,
          List<Long> compilationTasks, List<Long> decompilations) {
+        List<Map<String, Double>> pw = windows.windows;
         List<PrintInformation> inversions = new ArrayList<>();
+        int offset = (int) (windows.start/window);
         int compIter = 0;
         int decIter = 0;
         for (int i = 0; i < pw.size() - 1; i++) {
@@ -595,7 +600,7 @@ public class App {
                     inversions.add(new Decompilation(decompilations.get(decIter++)));
                 }
                 if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
-                    inversions.add(new Inversion(i, i + 1, k1, k2, valKey1Window1, valKey2Window1,
+                    inversions.add(new Inversion(offset+i, offset+i + 1, k1, k2, valKey1Window1, valKey2Window1,
                             valKey1Window2, valKey2Window2));
                 }
             }
