@@ -36,12 +36,14 @@ if [ ! -d overhead_times/ ]; then
   mkdir overhead_times/
 fi
 
+TIME=/usr/bin/time
+
 for entry in "${benchmarks[@]}"; do
   echo -e "${GREEN}WORKING ON BENCHMARK: ${entry}${NC}"
   TIME_FILE=overhead_times/default_"$1"_"$entry".txt
   for i in $(seq $2); do
     echo -e "${GREEN}ITERATION ${i}/${2} ${NC}"
-    /usr/bin/time -o $TIME_FILE -a java -jar $BENCH $entry $FLAGS
+    $TIME -o $TIME_FILE -a $JAVA_HOME/bin/java -jar $BENCH $entry $FLAGS
   done
 done
 
@@ -73,7 +75,7 @@ for entry in "${benchmarks[@]}"; do
 
     LOG_FILE=result/compiler_log_"$1"_"$entry"_"$i".xml
 
-    /usr/bin/time -o $TIME_FILE -a \
+    $TIME -o $TIME_FILE -a \
     $JAVA_HOME/bin/java -agentpath:$AGENT_PATH --patch-module java.base=$DISL_BYPASS \
     -Djava.security.manager=allow \
     --add-exports java.base/ch.usi.dag.disl.dynamicbypass=ALL-UNNAMED \
