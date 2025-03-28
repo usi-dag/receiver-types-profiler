@@ -7,15 +7,10 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
-import java.util.AbstractMap;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.Optional;
+
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
@@ -119,10 +114,13 @@ public class App {
                 String methodDescriptor = extractMethodDescriptor(callsite);
                 // compilations are given in milliseconds from the start time while
                 // the instrumentation is kept in microseconds.
-                List<Long> compilations = parser.findCompilationStamps(methodDescriptor);
-                compilations = compilations.stream().map(e -> (e-startTimeDiff)*1000).sorted().toList();
-                List<Long> decompilations = parser.findDecompilationStamps(methodDescriptor);
-                decompilations = decompilations.stream().map(e -> (e-startTimeDiff)*1000).sorted().toList();
+                List<Compilation> compilations = parser.findCompilationStamps(methodDescriptor);
+                compilations = compilations.stream().map(e -> e.withTime((e.time()-startTimeDiff)*1000))
+                .sorted(Comparator.comparing(Compilation::time)).toList();
+                // compilations = compilations.stream().map(e -> (e-startTimeDiff)*1000).sorted().toList();
+                List<Decompilation> decompilations = parser.findDecompilationStamps(methodDescriptor);
+                decompilations = decompilations.stream().map(e -> e.withTime((e.time()-startTimeDiff)*1000))
+                .sorted(Comparator.comparing(Decompilation::time)).toList();
                 // List<Map<String, Double>> percentageWindows = null;
                 var changes = findChanges(percentageWindows, arguments.delta, startTime, compilations, decompilations);
                 var inversions = findInversions(percentageWindows, arguments.delta, startTime, compilations, decompilations);
@@ -496,43 +494,9 @@ public class App {
         }).toList();
         return new PartitionedWindows(partitionedWindows, windowStart, end);
     }
-
-    public interface PrintInformation{
-        public String[] formatInformation();
-    }
-
-    public record RatioChange(int window, String className, double before,
-        double after, double diff) implements PrintInformation{
-
-        @Override
-        public String[] formatInformation(){
-            String[] result = new String[1];
-            result[0] = String.format("%s - window before: %s - window after: %s - diff: %s - before: %s - after: %s\n",
-                this.className, this.window, this.window + 1, this.diff, this.before, this.after);
-            return result;
-        }
-    }
-
-    public record Compilation(long time) implements PrintInformation{
-        @Override
-        public String[] formatInformation(){
-            String[] result = new String[1];
-            result[0] = String.format("Compilation at: %s\n", this.time);
-            return result;
-        }
-    }
-
-    public record Decompilation(long time) implements PrintInformation{
-        @Override
-        public String[] formatInformation(){
-            String[] result = new String[1];
-            result[0] = String.format("Decompilation at: %s\n", this.time);
-            return result;
-        }
-    }
     
     private static List<PrintInformation> findChanges(PartitionedWindows windows, long window, long startTime,
-         List<Long> compilationTasks, List<Long> decompilations) {
+         List<Compilation> compilationTasks, List<Decompilation> decompilations) {
         
         List<Map<String, Double>> pw = windows.windows;
         double threshold = 0.1;
@@ -547,11 +511,13 @@ public class App {
                 var v1 = w1.get(k);
                 var v2 = w2.get(k);
                 double diff = Math.abs(v1 - v2);
-                if(compilationIter < compilationTasks.size() && startTime+i*window > startTime+compilationTasks.get(compilationIter)){
-                    changes.add(new Compilation(compilationTasks.get(compilationIter++)));
+                if(compilationIter < compilationTasks.size() && startTime+i*window > startTime+compilationTasks.get(compilationIter).time()){
+                    var ct = compilationTasks.get(compilationIter++);
+                    changes.add(ct);
                 }
-                if(decompilationIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decompilationIter)){
-                    changes.add(new Decompilation(decompilations.get(decompilationIter++)));
+                if(decompilationIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decompilationIter).time()){
+                    var dt = decompilations.get(decompilationIter++);
+                    changes.add(dt);
                 }
                 if (diff > threshold) {
                     changes.add(new RatioChange(offset+i, k, v1, v2, diff));
@@ -561,21 +527,8 @@ public class App {
         return changes;
     }
 
-    public record Inversion(int window1, int window2, String className1, String className2, Double valKey1Window1,
-                            Double valKey2Window1, Double valKey1Window2, Double valKey2Window2) implements PrintInformation{
-                            @Override
-                            public String[] formatInformation(){
-                                String[] result = new String[3];
-                                
-                                result[0] = String.format("%s - %s - windows: %s - %s\n", this.className1, this.className2, this.window1, this.window2);
-                                result[1] = String.format("First Window: %s - %s, %s - %s\n", this.className1, this.className2, this.valKey1Window1, this.valKey2Window1);
-                                result[2] = String.format("Second Window: %s - %s, %s - %s\n", this.className1, this.className2, this.valKey1Window2, this.valKey2Window2);
-                                return result;
-                            }
-    }
-
     private static List<PrintInformation> findInversions(PartitionedWindows windows, long window, long startTime,
-         List<Long> compilationTasks, List<Long> decompilations) {
+         List<Compilation> compilationTasks, List<Decompilation> decompilations) {
         List<Map<String, Double>> pw = windows.windows;
         List<PrintInformation> inversions = new ArrayList<>();
         int offset = (int) (windows.start/window);
@@ -593,11 +546,13 @@ public class App {
                 Double valKey2Window1 = w1.get(k2);
                 Double valKey1Window2 = w2.get(k1);
                 Double valKey2Window2 = w2.get(k2);
-                if(compIter< compilationTasks.size() && startTime+i*window > startTime+compilationTasks.get(compIter)){
-                    inversions.add(new Compilation(compilationTasks.get(compIter++)));
+                if(compIter< compilationTasks.size() && startTime+i*window > startTime+compilationTasks.get(compIter).time()){
+                    Compilation ct = compilationTasks.get(compIter++);
+                    inversions.add(ct);
                 }
-                if(decIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decIter)){
-                    inversions.add(new Decompilation(decompilations.get(decIter++)));
+                if(decIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decIter).time()){
+                    var dt = decompilations.get(decIter++);
+                    inversions.add(dt);
                 }
                 if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
                     inversions.add(new Inversion(offset+i, offset+i + 1, k1, k2, valKey1Window1, valKey2Window1,

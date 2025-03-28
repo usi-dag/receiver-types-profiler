@@ -48,16 +48,23 @@ class XmlParser {
     return 0L;
   }
 
-  public List<Long> findCompilationStamps(String methodDescriptor) {
+  
+  public List<Compilation> findCompilationStamps(String methodDescriptor) {
     try {
       // String expression = "//task[@method='Main main ([Ljava/lang/String;)V']";
       String expression = String.format("//task[@method='%s']", methodDescriptor);
       NodeList res = (NodeList) this.xpath.compile(expression).evaluate(this.doc, XPathConstants.NODESET);
-      List<Long> toReturn = new ArrayList<>();
+      List<Compilation> toReturn = new ArrayList<>();
       for (int i = 0; i < res.getLength(); i++) {
         String value = res.item(i).getAttributes().getNamedItem("stamp").getNodeValue();
+        String id = res.item(i).getAttributes().getNamedItem("compile_id").getNodeValue();
+        String kind = null;
+        if(res.item(i).getAttributes().getNamedItem("compile_kind") != null){
+          kind = res.item(i).getAttributes().getNamedItem("compile_kind").getNodeValue();
+        }
         value = value.replace(".", "");
-        toReturn.add(Long.decode(value));
+        var a = new Compilation(Long.decode(value), id, kind);
+        toReturn.add(a);
 
       }
       return toReturn;
@@ -66,13 +73,13 @@ class XmlParser {
     }
     return new ArrayList<>();
   }
-
-  public List<Long> findDecompilationStamps(String methodDescriptor) {
+    
+  public List<Decompilation> findDecompilationStamps(String methodDescriptor) {
     try {
       // String expression = "//task[@method='Main main ([Ljava/lang/String;)V']";
       String expression = String.format("//task[@method='%s']", methodDescriptor);
       NodeList res = (NodeList) this.xpath.compile(expression).evaluate(this.doc, XPathConstants.NODESET);
-      List<Long> toReturn = new ArrayList<>();
+      List<Decompilation> toReturn = new ArrayList<>();
       List<String> compileIds = new ArrayList<>();
       for (int i = 0; i < res.getLength(); i++) {
         String value = res.item(i).getAttributes().getNamedItem("compile_id").getNodeValue();
@@ -81,11 +88,22 @@ class XmlParser {
       for(String compileId: compileIds){
         String nonEntrantExpression = String.format("//make_not_entrant[@compile_id='%s']", compileId);
         NodeList nonEntrantNodes = (NodeList) this.xpath.compile(nonEntrantExpression).evaluate(this.doc, XPathConstants.NODESET);
+        String trapExpression = String.format("//uncommon_trap[@compile_id='%s']", compileId);
+        NodeList trapNodes = (NodeList) this.xpath.compile(trapExpression).evaluate(this.doc, XPathConstants.NODESET);
         for(int i=0; i<nonEntrantNodes.getLength(); i++){
-          String value = nonEntrantNodes.item(i).getAttributes().getNamedItem("stamp").getNodeValue();
+          var attributes = nonEntrantNodes.item(i).getAttributes();
+          String reason = null;
+          String action = null;
+          if(i<trapNodes.getLength()){
+            var trapAttr = trapNodes.item(i).getAttributes();
+            reason = trapAttr.getNamedItem("reason") != null?  trapAttr.getNamedItem("reason").getNodeValue() : null;
+            action = trapAttr.getNamedItem("action") != null?  trapAttr.getNamedItem("action").getNodeValue() : null;
+          }
+          String value = attributes.getNamedItem("stamp") != null? attributes.getNamedItem("stamp").getNodeValue(): null;
+          String kind = attributes.getNamedItem("compile_kind") != null ? attributes.getNamedItem("compile_kind").getNodeValue(): null;
           value = value.replace(".", "");
-          toReturn.add(Long.decode(value));
-          
+          Decompilation dec = new Decompilation(Long.decode(value), compileId, kind, reason, action);
+          toReturn.add(dec);          
         }
       }
       return toReturn;
