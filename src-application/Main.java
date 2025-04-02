@@ -1,102 +1,54 @@
 
-
-public class Main{
+public class Main {
   public static void main(String[] args) {
-    A variable = new A();
-    for(int i=0; i<200000; i++){
-      if(i==100000){
-        variable = new C();
+    Main.induceMismatch();
+  }
+
+  public static void induceMismatch() {
+    for (int i = 0; i < 200000; i++) {
+      M1 el = getEl(i);
+      int res = el.computeSomeStuff(100);
+      System.out.println(res);
+    }
+  }
+
+  public static M1 getEl(int i) {
+    // this should apply before compilation
+    if (i < 100000) {
+      if (Math.random() > 0.7) {
+        return new M2();
       }
-      variable.insane_name();
+      return new M1();
     }
-    // warmup
-    // for(int i =0; i< 1000; i++){
-    //   m();
-    // }
-
-    // // method call
-    // for(int i = 0; i < 1; i++){
-    //   m();
-    // }
+    // this should apply after compilation
+    if (Math.random() > 0.3) {
+      return new M2();
     }
-//    public static void m(){
-//     var a = new A();
-//     a.m2(0, 0);
-//     a.insane_name();
-//     A.staticMethod();
-//     // if(true){return;}
-//     var b = new B();
-//     var c = new C();
-//     var d = new D();
-//     TestInterface in = new B();
+    return new M1();
+  }
+}
 
-//     final var MAX_ITERATION = 100;
-//     for(int i = 0; i < MAX_ITERATION; i++){
-//       if(i<30){
-//         a.insane_name();
-//       } else if(i<40){
-//         b.insane_name();
-//       } else if(i<60){
-//         c.insane_name();
-//       } else {
-//         d.m();
-//       }
+class M1 {
+  public int computeSomeStuff(int arg) {
+    return arg * 100;
+  }
+}
 
-//       if(i%20 ==0){
-//         in.im();
-//       }
-//       if(i%20 == 19){
-//         a = new C();
-//       }
-//     }
-     
-//    }
-// }
-
-/**
- * TestInterface
- */
-// interface TestInterface {
-//   default void sdm(){
-//     System.out.println("Interface");
-//   }
-
-//   void im();
-  
-// }
+class M2 extends M1 {
+  public int computeSomeStuff(int arg) {
+    return arg * 67;
+  }
 }
 
 class A {
-  public void insane_name(){
+  public void insane_name() {
     System.out.println("I am A");
   }
 }
 
-//   public void m2(int a, long b){
-//     System.out.println("aaaa");
-//   }
 
-//   public static void staticMethod(){
-//     System.out.println("STATIC");
-//   }
-// }
-
-// class B extends A implements TestInterface {
-//   @Override
-//   public void im(){
-//     System.out.println("Hello from interface method");
-//   }
-  
-// }
-
-class C extends A{
-  public void insane_name(){
+class C extends A {
+  public void insane_name() {
     System.out.println("I am C");
   }
 }
-
-// class D{
-//   public void m(){
-//     System.out.println("I am D");
-//   }
-// }

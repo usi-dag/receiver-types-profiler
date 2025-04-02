@@ -22,6 +22,7 @@ case "$1" in
     		FLAGS="-r 1"
         BENCH=renaissance-gpl-0.16.0.jar 
         benchmarks=(scrabble page-rank future-genetic akka-uct movie-lens scala-doku chi-square fj-kmeans rx-scrabble db-shootout neo4j-analytics finagle-http reactors dec-tree scala-stm-bench7 naive-bayes als par-mnemonics scala-kmeans philosophers log-regression gauss-mix mnemonics dotty finagle-chirper)
+        # benchmarks=(future-genetic)
         ;;
 
     *)
