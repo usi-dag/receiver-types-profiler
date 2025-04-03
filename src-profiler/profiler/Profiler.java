@@ -8,11 +8,13 @@ import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
+import java.util.Map;
 import java.util.Date;
 import java.util.Map.Entry;
 import java.text.SimpleDateFormat;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 
 public class Profiler{
@@ -22,6 +24,11 @@ public class Profiler{
     public final static long length = 3*512*1024;
     private final static ConcurrentHashMap<String, Long> classNameToId = new ConcurrentHashMap<>();
     private static final AtomicInteger nextAvailableFileNumber = new AtomicInteger();
+    private static AtomicLong cId = new AtomicLong(0);
+
+    public static long getId(){
+      return cId.incrementAndGet();
+    }
 
     static {
       beginning = System.nanoTime();
@@ -60,14 +67,46 @@ public class Profiler{
       return null;
     }
 
-    public static int putInfo(MappedByteBuffer mb, int index, long callsite, Object obj){
+    public static long jank(Map<String, Long> ctoi, Object obj, long id){
+      if(obj == null){
+        return id;
+      }
+      if(!ctoi.containsKey(obj.getClass().getName())){
+        ctoi.put(obj.getClass().getName(), id);
+      }
+      return id + 1;
+    }
+
+    public static void registerThreadExit(Map<String, Long> ctoi){
+      
+      SimpleDateFormat dateFormat = new SimpleDateFormat("dd_MM_yy_HH_mm");
+      Date date = new Date();
+      String formattedDate = dateFormat.format(date);
+      String outputFileName = "jank_" +  formattedDate + ".csv";
+      File outputFile = new File(outputDir, outputFileName);
+      try{
+        var res = outputFile.createNewFile();
+      }catch(IOException e){
+        System.err.println(e.getMessage());
+      }
+      try{
+        for(Entry<String, Long> el: ctoi.entrySet()){
+          Files.writeString(outputFile.toPath(), el.getKey()+ ","+el.getValue()+"\n", StandardOpenOption.APPEND);
+        }
+      }catch(IOException e){
+        System.err.println(e.getMessage());
+      }
+    }
+
+    public static int putInfo(MappedByteBuffer mb, int index, long callsite, Object obj, Map<String, Long> ctoi){
       if(callsite == -1){
         return index;
       }
       long time = System.nanoTime();
       long timeDiff = (time - Profiler.beginning)/1000;
       String targetClassName = obj.getClass().getName();
-      long tid = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);
+      // long tid = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);
+      long tid = ctoi.get(targetClassName);
 
       mb.putInt((int) (callsite & 0xFFFFFFFFL));
       mb.putInt((int) (tid & 0xFFFFFFFFL));
