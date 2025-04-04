@@ -8,6 +8,7 @@ import scipy
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import defaultdict
+from statistics import geometric_mean
 
 
 def main() -> None:
@@ -90,9 +91,14 @@ def compute_statistics(name: str, value: Dict[str, List[float]]):
     avg_instrumented = np.mean(df["instrumented"])
     cohend = cohen_d(df["default"], df["instrumented"])
     wil = scipy.stats.wilcoxon(df["default"], df["instrumented"])
+    geo_default = geometric_mean(df["default"])
+    geo_instrumented = geometric_mean(df["instrumented"])
     print(f"Statistics for function {name}")
     print(f"    instrumented mean: {avg_instrumented}")
     print(f"    default mean: {avg_default}")
+    print(f"    instrumented geometric mean: {geo_instrumented}")
+    print(f"    default geometric mean: {geo_default}")
+    print(f"    ratio: {geo_instrumented/geo_default}")
     print(f"    cohend: {cohend}")
     print(f"    wil: {wil}")
     data["name"] = name

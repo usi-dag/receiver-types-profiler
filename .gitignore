@@ -15,3 +15,5 @@ archives/
 dacapo-23.11-MR2-chopin.jar
 dacapo-23.11-MR2-chopin/
 renaissance-gpl-0.16.0.jar
+*.tar.gz
+plots/

@@ -7,7 +7,7 @@ from collections import defaultdict
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import scipy
+import matplotlib as mpl
 
 
 def main():
@@ -39,24 +39,40 @@ def main():
 
 def save_statistics(df: pd.DataFrame, output_folder: Path, name: str):
     data = {}
-    fig = plt.figure()
-    for column in df.columns:
-        bp = df.boxplot(column=[column])
+    # bar plot
+    df = df.reset_index()
+    df["id"] = df.index
+    columns = [e for e in df.columns if e not in ["id", "index"]]
+    for column in columns:
+        sorted = df.sort_values(by=column, ascending=False).head(30)
+        color = mpl.cm.inferno_r(np.linspace(.4, .8, len(sorted)))
+        p = sorted.plot.bar(x="id", y=column, figsize=(40, 20), legend=True, color=color)
         plt.title(f"{column.capitalize()} for {name}")
-        fig.savefig(output_folder.joinpath(f"{name}.png"))
-        plt.close(fig)
-        avg = np.mean(df[column])
-        dev = np.std(df[column])
-        data[column] = {
-            "average": avg,
-            "standard deviation": dev
-        }
-    with open(output_folder.joinpath(f"{name}_statistics.txt"), "a") as f:
-        for k, v in data.items():
-            f.write(f"{k.capitalize()}:\n")
-            f.write(f"Average: {v["average"]}\n")
-            f.write(f"Standard deviation: {v["standard deviation"]}\n")
-            f.write("\n")
+        plt.savefig(output_folder.joinpath(f"{name}_{column}_bar.png"))
+        plt.close()
+    # scatter plot
+    for column in columns:
+        cleaned = df[df[column] > 0]
+        color = mpl.cm.inferno_r(np.linspace(.4, .8, len(cleaned)))
+        xticks = [] if len(cleaned) > 30 else cleaned["id"]
+        p = cleaned.plot.scatter(y=column, x="id", figsize=(30, 15), xticks=xticks, legend=True, color=color, rot=90)
+        plt.title(f"{column.capitalize()} for {name}")
+        plt.savefig(output_folder.joinpath(f"{name}_{column}_scatter.png"))
+        plt.close()
+    for column in columns:
+        cleaned = df[df[column] > 0]
+        color = mpl.cm.inferno_r(np.linspace(.4, .8, len(cleaned)))
+        p = cleaned.boxplot(column=column, grid=False)
+        plt.title(f"{column.capitalize()} for {name}")
+        plt.savefig(output_folder.joinpath(f"{name}_{column}_boxplot.png"))
+        plt.close()
+    df.to_csv(output_folder.joinpath(f"{name}_statisticts.csv"))
+    c_75 = np.percentile(df["changes after compilation"], 75)
+    i_75 = np.percentile(df["inversions after compilation"], 75)
+    cc = df[df["changes after compilation"] > c_75]
+    cc.to_csv(output_folder.joinpath(f"{name}_cc.csv"))
+    ic = df[df["inversions after compilation"] > i_75]
+    ic.to_csv(output_folder.joinpath(f"{name}_ic.csv"))
     return data
 
 def cohen_d(deap: List[float], random: List[float]):

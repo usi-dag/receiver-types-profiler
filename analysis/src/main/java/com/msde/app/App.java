@@ -83,7 +83,7 @@ public class App {
         System.out.println("After partitioning large files.");
         int i = 0;
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
-        callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.getName().equals("callsite_794.txt")).toArray(File[]::new);
+        // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.getName().equals("callsite_794.txt")).toArray(File[]::new);
         XmlParser parser = new XmlParser(arguments.compilerLog);
         Long vmStartTime = parser.getVmStartTime();
         Long startTimeDiff = startTime-vmStartTime;
