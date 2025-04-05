@@ -66,7 +66,7 @@ def save_statistics(df: pd.DataFrame, output_folder: Path, name: str):
         plt.title(f"{column.capitalize()} for {name}")
         plt.savefig(output_folder.joinpath(f"{name}_{column}_boxplot.png"))
         plt.close()
-    df.to_csv(output_folder.joinpath(f"{name}_statisticts.csv"))
+    df.to_csv(output_folder.joinpath(f"{name}_statistics.csv"))
     c_75 = np.percentile(df["changes after compilation"], 75)
     i_75 = np.percentile(df["inversions after compilation"], 75)
     cc = df[df["changes after compilation"] > c_75]

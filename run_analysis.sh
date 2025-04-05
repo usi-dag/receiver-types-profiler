@@ -21,7 +21,8 @@ case "$1" in
     "ren")
     		FLAGS="-r 1"
         BENCH=renaissance-gpl-0.16.0.jar 
-        benchmarks=(scrabble page-rank future-genetic akka-uct movie-lens scala-doku chi-square fj-kmeans rx-scrabble db-shootout neo4j-analytics finagle-http reactors dec-tree scala-stm-bench7 naive-bayes als par-mnemonics scala-kmeans philosophers log-regression gauss-mix mnemonics dotty finagle-chirper)
+        # benchmarks=(scrabble page-rank future-genetic akka-uct movie-lens scala-doku chi-square fj-kmeans rx-scrabble db-shootout neo4j-analytics finagle-http reactors dec-tree scala-stm-bench7 naive-bayes als par-mnemonics scala-kmeans philosophers log-regression gauss-mix mnemonics dotty finagle-chirper)
+        benchmarks=(scrabble)
         ;;
 
     *)
@@ -71,7 +72,12 @@ for entry in "${benchmarks[@]}"; do
     # This is some of the jankiest fix ever made and it brings shame upon my family.
     sleep 10
 
-    $JAVA_HOME/bin/java -Xmx10G -classpath analysis/target/classes/ com.msde.app.App -i output/ -c $LOG_FILE
+    $JAVA_HOME/bin/java -Xmx10G -classpath analysis/target/classes/ com.msde.app.App -i output/ -c $LOG_FILE -d 1000 
+
+    if [ $? -ne 0 ]; then
+      echo Something went wrong analyzing $1 $entry iteration $i
+      continue
+    fi
 
     ARCHIVENAME="$1"_"$entry"_"$i".tar.gz
     echo $ARCHIVENAME
