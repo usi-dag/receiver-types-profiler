@@ -53,7 +53,7 @@ public class App {
                 }
                 default -> {
                     System.out.println("usage: [--help] [--input-folder folder] [--delta time] [--compile-log file]"); 
-                    System.exit(0);
+                    System.exit(1);
                 }
             }
 
@@ -87,57 +87,159 @@ public class App {
         XmlParser parser = new XmlParser(arguments.compilerLog);
         Long vmStartTime = parser.getVmStartTime();
         Long startTimeDiff = startTime-vmStartTime;
-        for(File cf: callsiteFiles){
-            System.out.printf("\33[2K\rworking on file %s %s/%s size %s M" , cf, i+1, callsiteFiles.length, cf.length()/(1024*1024));
-            Optional<List<Long>> maybeInfo = readBinary(cf);
-            // System.out.println("finished reading binary");
-            if(maybeInfo.isEmpty()){
-                System.err.println("Couldn't read binary file: " + cf.getAbsolutePath());
-                continue;
-            }
-            List<Long> info = maybeInfo.get();
-            String callsiteFileNumber = cf.getName().replace("callsite_", "").replace(".txt", "");
-            File resFile = new File(resultFolder, String.format("result_%s.txt", callsiteFileNumber));
-            if(resFile.exists()){
-                resFile.delete();
-            }
-            i++;
-            var callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
-            for (var entry : callsiteInfo.entrySet()) {
-                String callsite = entry.getKey();
-                if(callsite == null){
-                    System.err.println("Couldn't reconstruct callsite for file " + cf.getAbsolutePath());
-                    System.exit(1);
+        runAnalysis(callsiteFiles, resultFolder, idToCallsite, idToClassName, arguments, parser, startTime);
+        // for(File cf: callsiteFiles){
+        //     System.out.printf("\33[2K\rworking on file %s %s/%s size %s M" , cf, i+1, callsiteFiles.length, cf.length()/(1024*1024));
+        //     Optional<List<Long>> maybeInfo = readBinary(cf);
+        //     // System.out.println("finished reading binary");
+        //     if(maybeInfo.isEmpty()){
+        //         System.err.println("Couldn't read binary file: " + cf.getAbsolutePath());
+        //         continue;
+        //     }
+        //     List<Long> info = maybeInfo.get();
+        //     String callsiteFileNumber = cf.getName().replace("callsite_", "").replace(".txt", "");
+        //     File resFile = new File(resultFolder, String.format("result_%s.txt", callsiteFileNumber));
+        //     if(resFile.exists()){
+        //         resFile.delete();
+        //     }
+        //     i++;
+        //     var callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
+        //     for (var entry : callsiteInfo.entrySet()) {
+        //         String callsite = entry.getKey();
+        //         if(callsite == null){
+        //             System.err.println("Couldn't reconstruct callsite for file " + cf.getAbsolutePath());
+        //             System.exit(1);
+        //         }
+        //         // System.out.println("Callsite: " + callsite);
+        //         var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
+        //         String methodDescriptor = extractMethodDescriptor(callsite);
+        //         // compilations are given in milliseconds from the start time while
+        //         // the instrumentation is kept in microseconds.
+        //         List<Compilation> compilations = parser.findCompilationStamps(methodDescriptor);
+        //         compilations = compilations.stream().map(e -> e.withTime((e.time()-startTimeDiff)*1000))
+        //         .sorted(Comparator.comparing(Compilation::time)).toList();
+        //         // compilations = compilations.stream().map(e -> (e-startTimeDiff)*1000).sorted().toList();
+        //         List<Decompilation> decompilations = parser.findDecompilationStamps(methodDescriptor);
+        //         decompilations = decompilations.stream().map(e -> e.withTime((e.time()-startTimeDiff)*1000))
+        //         .sorted(Comparator.comparing(Decompilation::time)).toList();
+        //         // List<Map<String, Double>> percentageWindows = null;
+        //         var changes = findChanges(percentageWindows, arguments.delta, startTime, compilations, decompilations);
+        //         var inversions = findInversions(percentageWindows, arguments.delta, startTime, compilations, decompilations);
+        //         if (changes.isEmpty() && inversions.isEmpty()) {
+        //             continue;
+        //         }
+        //         StringBuilder res = formatAnalysisResult(callsite, changes, inversions, percentageWindows.start, arguments.delta);
+        //         // System.out.println(res);
+        //         try {
+        //             resFile.createNewFile();
+        //             Files.writeString(resFile.toPath(), res.toString(), StandardOpenOption.APPEND);
+        //         } catch (IOException e) {
+        //             System.err.println(e.getMessage());
+        //         }
+        //     }
+        // }
+        // System.out.println();
+    }
+
+
+    private static void runAnalysis(File[] callsiteFiles, File resultFolder, Map<Long, String> idToCallsite, Map<Long, String> idToClassName, Args arguments, XmlParser parser, Long startTime) {
+        Long vmStartTime = parser.getVmStartTime();
+        Long startTimeDiff = startTime - vmStartTime;
+        List<List<File>> partitions = partitionFileList(List.of(callsiteFiles), 4);
+        List<Thread> threads = new ArrayList<>();
+        List<Integer> threadFinished = Arrays.asList(0, 0, 0, 0);
+        int id = 0;
+        for (List<File> cFiles : partitions) {
+            int threadId = id++;
+            Thread t = new Thread(() -> {
+                int current = 0;
+                for (File cf : cFiles) {
+                    // System.out.printf("\33[2K\rworking on file %s %s/%s size %s M" , cf, i+1, callsiteFiles.length, cf.length()/(1024*1024));
+                    if (threadAnalysis(resultFolder, idToCallsite, idToClassName, arguments, parser, startTime, cf, startTimeDiff))
+                        continue;
+                    current++;
+                    threadFinished.set(threadId, current);
                 }
-                // System.out.println("Callsite: " + callsite);
-                var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
-                String methodDescriptor = extractMethodDescriptor(callsite);
-                // compilations are given in milliseconds from the start time while
-                // the instrumentation is kept in microseconds.
-                List<Compilation> compilations = parser.findCompilationStamps(methodDescriptor);
-                compilations = compilations.stream().map(e -> e.withTime((e.time()-startTimeDiff)*1000))
-                .sorted(Comparator.comparing(Compilation::time)).toList();
-                // compilations = compilations.stream().map(e -> (e-startTimeDiff)*1000).sorted().toList();
-                List<Decompilation> decompilations = parser.findDecompilationStamps(methodDescriptor);
-                decompilations = decompilations.stream().map(e -> e.withTime((e.time()-startTimeDiff)*1000))
-                .sorted(Comparator.comparing(Decompilation::time)).toList();
-                // List<Map<String, Double>> percentageWindows = null;
-                var changes = findChanges(percentageWindows, arguments.delta, startTime, compilations, decompilations);
-                var inversions = findInversions(percentageWindows, arguments.delta, startTime, compilations, decompilations);
-                if (changes.isEmpty() && inversions.isEmpty()) {
-                    continue;
-                }
-                StringBuilder res = formatAnalysisResult(callsite, changes, inversions, percentageWindows.start, arguments.delta);
-                // System.out.println(res);
-                try {
-                    resFile.createNewFile();
-                    Files.writeString(resFile.toPath(), res.toString(), StandardOpenOption.APPEND);
-                } catch (IOException e) {
+
+            });
+            threads.add(t);
+        }
+        Thread logThread = new Thread(()->{
+            while(threadFinished.stream().mapToInt(el->el).sum() != callsiteFiles.length){
+                try{
+                    Thread.sleep(400);
+                } catch(InterruptedException e){
                     System.err.println(e.getMessage());
                 }
+                String progress = IntStream.range(0, threadFinished.size()).mapToObj(el -> String.format("%s - %s/%s", el, threadFinished.get(el), partitions.get(el).size())).collect(Collectors.joining(", "));
+                System.out.print("\33[2K\rAnalysis progess: "+progress);
+            }
+            String progress = IntStream.range(0, threadFinished.size()).mapToObj(el -> String.format("%s - %s/%s", el, threadFinished.get(el), partitions.get(el).size())).collect(Collectors.joining(", "));
+            System.out.print("\33[2K\rAnalysis progess: "+progress);
+            System.out.println();
+        });
+        threads.add(logThread);
+        for (Thread t : threads) {
+                t.start();
+        }
+        for (Thread t : threads) {
+            try {
+                t.join();
+            } catch (InterruptedException e) {
+                System.err.println(e.getMessage());
             }
         }
-        System.out.println();
+    }
+
+    private static boolean threadAnalysis(File resultFolder, Map<Long, String> idToCallsite, Map<Long, String> idToClassName, Args arguments, XmlParser parser, Long startTime, File cf, Long startTimeDiff) {
+        Optional<List<Long>> maybeInfo = readBinary(cf);
+        // System.out.println("finished reading binary");
+        if (maybeInfo.isEmpty()) {
+            System.err.println("Couldn't read binary file: " + cf.getAbsolutePath());
+            return true;
+        }
+        List<Long> info = maybeInfo.get();
+        String callsiteFileNumber = cf.getName().replace("callsite_", "").replace(".txt", "");
+        File resFile = new File(resultFolder, String.format("result_%s.txt", callsiteFileNumber));
+        if (resFile.exists()) {
+            resFile.delete();
+        }
+        // i++;
+        var callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
+        for (var entry : callsiteInfo.entrySet()) {
+            String callsite = entry.getKey();
+            if (callsite == null) {
+                System.err.println("Couldn't reconstruct callsite for file " + cf.getAbsolutePath());
+                System.exit(1);
+            }
+            // System.out.println("Callsite: " + callsite);
+            var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
+            String methodDescriptor = extractMethodDescriptor(callsite);
+            // compilations are given in milliseconds from the start time while
+            // the instrumentation is kept in microseconds.
+            List<Compilation> compilations = parser.findCompilationStamps(methodDescriptor);
+            compilations = compilations.stream().map(e -> e.withTime((e.time() - startTimeDiff) * 1000))
+                    .sorted(Comparator.comparing(Compilation::time)).toList();
+            // compilations = compilations.stream().map(e -> (e-startTimeDiff)*1000).sorted().toList();
+            List<Decompilation> decompilations = parser.findDecompilationStamps(methodDescriptor);
+            decompilations = decompilations.stream().map(e -> e.withTime((e.time() - startTimeDiff) * 1000))
+                    .sorted(Comparator.comparing(Decompilation::time)).toList();
+            // List<Map<String, Double>> percentageWindows = null;
+            var changes = findChanges(percentageWindows, arguments.delta, startTime, compilations, decompilations);
+            var inversions = findInversions(percentageWindows, arguments.delta, startTime, compilations, decompilations);
+            if (changes.isEmpty() && inversions.isEmpty()) {
+                continue;
+            }
+            StringBuilder res = formatAnalysisResult(callsite, changes, inversions, percentageWindows.start, arguments.delta);
+            // System.out.println(res);
+            try {
+                resFile.createNewFile();
+                Files.writeString(resFile.toPath(), res.toString(), StandardOpenOption.APPEND);
+            } catch (IOException e) {
+                System.err.println(e.getMessage());
+            }
+        }
+        return false;
     }
 
     private static String extractMethodDescriptor(String callsite){
@@ -230,6 +332,21 @@ public class App {
             }
             Files.write(csFile.toPath(), toWrite, StandardOpenOption.APPEND);
         }
+    }
+
+    private static List<List<File>> partitionFileList(List<File> files, int numberOfPartitions){
+        int partitionSize = files.size()/numberOfPartitions;
+        List<List<File>> partitions = new ArrayList<>();
+        for (int i = 0; i < numberOfPartitions; i++) {
+            int beg = i * partitionSize;
+            int end = Math.min(beg + partitionSize, files.size());
+            if (i == numberOfPartitions - 1) {
+                end = files.size();
+            }
+            partitions.add(files.subList(beg, end));
+        }
+        return partitions;
+
     }
 
     private static void partitionFiles(List<File> partials) {
