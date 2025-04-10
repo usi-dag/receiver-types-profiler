@@ -22,7 +22,7 @@ case "$1" in
     		FLAGS="-r 1"
         BENCH=renaissance-gpl-0.16.0.jar 
         # benchmarks=(scrabble page-rank future-genetic akka-uct movie-lens scala-doku chi-square fj-kmeans rx-scrabble db-shootout neo4j-analytics finagle-http reactors dec-tree scala-stm-bench7 naive-bayes als par-mnemonics scala-kmeans philosophers log-regression gauss-mix mnemonics dotty finagle-chirper)
-        benchmarks=(scrabble)
+        benchmarks=(rx-scrabble)
         ;;
 
     *)
@@ -81,7 +81,7 @@ for entry in "${benchmarks[@]}"; do
 
     ARCHIVENAME="$1"_"$entry"_"$i".tar.gz
     echo $ARCHIVENAME
-    tar --use-compress-program="pigz -k" -cf $ARCHIVENAME result
+    tar --use-compress-program="gzip --fast" -cf $ARCHIVENAME result
 
     # ARCHIVEDIR=/mnt/hdd/archives/
     ARCHIVEDIR=archives/
@@ -91,7 +91,7 @@ for entry in "${benchmarks[@]}"; do
     fi
 
     mv $ARCHIVENAME $ARCHIVEDIR
-    # rm output/*
-    # rm result/*
+    rm output/*
+    rm result/*
   done
 done
