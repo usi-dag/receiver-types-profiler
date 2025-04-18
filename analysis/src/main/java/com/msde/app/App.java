@@ -85,69 +85,20 @@ public class App {
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.getName().equals("callsite_794.txt")).toArray(File[]::new);
         XmlParser parser = new XmlParser(arguments.compilerLog);
-        Long vmStartTime = parser.getVmStartTime();
-        Long startTimeDiff = startTime-vmStartTime;
         runAnalysis(callsiteFiles, resultFolder, idToCallsite, idToClassName, arguments, parser, startTime);
-        // for(File cf: callsiteFiles){
-        //     System.out.printf("\33[2K\rworking on file %s %s/%s size %s M" , cf, i+1, callsiteFiles.length, cf.length()/(1024*1024));
-        //     Optional<List<Long>> maybeInfo = readBinary(cf);
-        //     // System.out.println("finished reading binary");
-        //     if(maybeInfo.isEmpty()){
-        //         System.err.println("Couldn't read binary file: " + cf.getAbsolutePath());
-        //         continue;
-        //     }
-        //     List<Long> info = maybeInfo.get();
-        //     String callsiteFileNumber = cf.getName().replace("callsite_", "").replace(".txt", "");
-        //     File resFile = new File(resultFolder, String.format("result_%s.txt", callsiteFileNumber));
-        //     if(resFile.exists()){
-        //         resFile.delete();
-        //     }
-        //     i++;
-        //     var callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
-        //     for (var entry : callsiteInfo.entrySet()) {
-        //         String callsite = entry.getKey();
-        //         if(callsite == null){
-        //             System.err.println("Couldn't reconstruct callsite for file " + cf.getAbsolutePath());
-        //             System.exit(1);
-        //         }
-        //         // System.out.println("Callsite: " + callsite);
-        //         var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
-        //         String methodDescriptor = extractMethodDescriptor(callsite);
-        //         // compilations are given in milliseconds from the start time while
-        //         // the instrumentation is kept in microseconds.
-        //         List<Compilation> compilations = parser.findCompilationStamps(methodDescriptor);
-        //         compilations = compilations.stream().map(e -> e.withTime((e.time()-startTimeDiff)*1000))
-        //         .sorted(Comparator.comparing(Compilation::time)).toList();
-        //         // compilations = compilations.stream().map(e -> (e-startTimeDiff)*1000).sorted().toList();
-        //         List<Decompilation> decompilations = parser.findDecompilationStamps(methodDescriptor);
-        //         decompilations = decompilations.stream().map(e -> e.withTime((e.time()-startTimeDiff)*1000))
-        //         .sorted(Comparator.comparing(Decompilation::time)).toList();
-        //         // List<Map<String, Double>> percentageWindows = null;
-        //         var changes = findChanges(percentageWindows, arguments.delta, startTime, compilations, decompilations);
-        //         var inversions = findInversions(percentageWindows, arguments.delta, startTime, compilations, decompilations);
-        //         if (changes.isEmpty() && inversions.isEmpty()) {
-        //             continue;
-        //         }
-        //         StringBuilder res = formatAnalysisResult(callsite, changes, inversions, percentageWindows.start, arguments.delta);
-        //         // System.out.println(res);
-        //         try {
-        //             resFile.createNewFile();
-        //             Files.writeString(resFile.toPath(), res.toString(), StandardOpenOption.APPEND);
-        //         } catch (IOException e) {
-        //             System.err.println(e.getMessage());
-        //         }
-        //     }
-        // }
-        // System.out.println();
     }
 
 
     private static void runAnalysis(File[] callsiteFiles, File resultFolder, Map<Long, String> idToCallsite, Map<Long, String> idToClassName, Args arguments, XmlParser parser, Long startTime) {
         Long vmStartTime = parser.getVmStartTime();
         Long startTimeDiff = startTime - vmStartTime;
-        List<List<File>> partitions = partitionFileList(List.of(callsiteFiles), 4);
+        int numberOfPartitions = 4;
+        List<List<File>> partitions = partitionFileList(List.of(callsiteFiles), numberOfPartitions);
         List<Thread> threads = new ArrayList<>();
-        List<Integer> threadFinished = Arrays.asList(0, 0, 0, 0);
+        List<Integer> threadFinished = new ArrayList<>();
+        for(int i=0; i<numberOfPartitions; i++){
+            threadFinished.add(0);
+        }
         int id = 0;
         for (List<File> cFiles : partitions) {
             int threadId = id++;

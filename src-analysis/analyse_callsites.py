@@ -15,6 +15,7 @@ def main():
     parser.add_argument(
         "--input-folder", dest="input_folder", type=Path, default=Path("./result/")
     )
+    parser.add_argument("--hotness", dest="hotness", type=Path, required=True)
     parser.add_argument(
         "--output-folder", dest="output_folder", type=Path, default=Path("./result/")
     )
@@ -22,6 +23,10 @@ def main():
     args: Namespace = parser.parse_args()
     input_folder = args.input_folder
     input_files: List[Path] = [f for f in input_folder.iterdir()]
+    output_folder: Path = args.output_folder
+    if not output_folder.is_dir():
+        output_folder.mkdir()
+    hotness: Path = args.hotness
     result_files = [f for f in input_files if f.name.startswith("result")]
     statistics = {}
     for f in result_files:
@@ -38,16 +43,59 @@ def main():
             }
     df = pd.DataFrame(statistics)
     df = df.T
-    save_statistics(df, args.output_folder, args.name)
+    df = df.reset_index()
+    df["id"] = df.index
+
+    def extract_method_name(callsite):
+        m = callsite["index"].split(" ")[1]
+        m = m[: m.index(")") + 1]
+        return m
+
+    df["method_descriptor"] = df.apply(extract_method_name, axis=1)
+    normalized_df = normalize_by_hotness(df, hotness)
+    normalized_csv = output_folder.joinpath(f"{args.name}_normalized.csv")
+    normalized_df.to_csv(normalized_csv)
+    save_statistics(df, output_folder, args.name)
     return
+
+
+def normalize_by_hotness(df: pd.DataFrame, hotness: Path) -> pd.DataFrame:
+    hot_df: pd.DataFrame = pd.read_csv(hotness)
+    new_df = pd.merge(df, hot_df, on="method_descriptor", how="left")
+
+    def custom_aggregate(x):
+        return x.fillna(0).iloc[0]
+
+    aggregated_metrics = new_df.groupby("method_descriptor").agg(
+        {
+            "changes": "sum",
+            "inversions": "sum",
+            "compilations": "sum",
+            "decompilations": "sum",
+            "changes after compilation": "sum",
+            "inversions after compilation": "sum",
+            "exclusive cpu sec": custom_aggregate,
+            "inclusive cpu sec": custom_aggregate,
+        }
+    )
+    aggregated_metrics["normalized inversions after compilation"] = (
+        aggregated_metrics.apply(
+            lambda r: 0
+            if r["inclusive cpu sec"] == 0
+            else r["inversions after compilation"] / r["inclusive cpu sec"],
+            axis=1,
+        )
+    )
+    aggregated_metrics = aggregated_metrics.sort_values(
+        "normalized inversions after compilation", ascending=False
+    )
+    return aggregated_metrics
 
 
 def save_statistics(df: pd.DataFrame, output_folder: Path, name: str):
     data = {}
     # bar plot
-    df = df.reset_index()
-    df["id"] = df.index
-    columns = [e for e in df.columns if e not in ["id", "index"]]
+    columns = [e for e in df.columns if e not in ["id", "index", "method_descriptor"]]
     for column in columns:
         sorted = df.sort_values(by=column, ascending=False).head(30)
         color = mpl.cm.inferno_r(np.linspace(0.4, 0.8, len(sorted)))
@@ -81,13 +129,14 @@ def save_statistics(df: pd.DataFrame, output_folder: Path, name: str):
         plt.title(f"{column.capitalize()} for {name}")
         plt.savefig(output_folder.joinpath(f"{name}_{column}_boxplot.png"))
         plt.close()
+    df = df.sort_values("inversions after compilation", ascending=False)
     df.to_csv(output_folder.joinpath(f"{name}_statistics.csv"))
-    c_75 = np.percentile(df["changes after compilation"], 75)
-    i_75 = np.percentile(df["inversions after compilation"], 75)
-    cc = df[df["changes after compilation"] > c_75]
-    cc.to_csv(output_folder.joinpath(f"{name}_cc.csv"))
-    ic = df[df["inversions after compilation"] > i_75]
-    ic.to_csv(output_folder.joinpath(f"{name}_ic.csv"))
+    # c_75 = np.percentile(df["changes after compilation"], 75)
+    # i_75 = np.percentile(df["inversions after compilation"], 75)
+    # cc = df[df["changes after compilation"] > c_75]
+    # cc.to_csv(output_folder.joinpath(f"{name}_cc.csv"))
+    # ic = df[df["inversions after compilation"] > i_75]
+    # ic.to_csv(output_folder.joinpath(f"{name}_ic.csv"))
     return data
 
 

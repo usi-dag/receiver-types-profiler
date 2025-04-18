@@ -2,47 +2,35 @@ package com.msde.app;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
-import javax.xml.parsers.DocumentBuilder;
-
-import org.w3c.dom.Document;
-import org.w3c.dom.NodeList;
-
-import javax.xml.xpath.XPath;
-import javax.xml.xpath.XPathConstants;
-import javax.xml.parsers.DocumentBuilderFactory;
-import javax.xml.parsers.ParserConfigurationException;
 
 class XmlParser {
   private File compilerLog;
-  private XPath xpath;
-  private Document doc;
+  private List<String> content;
 
   public XmlParser(File compilerLog) {
     this.compilerLog = compilerLog;
     try {
-      DocumentBuilder db = DocumentBuilderFactory.newInstance().newDocumentBuilder();
-      this.doc = db.parse(this.compilerLog);
-      doc.normalize();
-    } catch (ParserConfigurationException e) {
-      System.err.println(e.getMessage());
-    } catch (org.xml.sax.SAXException e) {
-      System.err.println(e.getMessage());
+        content = Files.lines(compilerLog.toPath()).filter(e -> e.contains("task") ||
+          e.contains("make_not_entrant") ||
+          e.contains("uncommon_trap") ||
+          e.contains("hotspot_log"))
+        .map(l -> l.replace("&lt;", "<").replace("&gt;", ">"))
+        .collect(Collectors.toList());
     } catch (IOException e) {
-      System.err.println(e.getMessage());
+        e.printStackTrace();
     }
-    this.xpath = javax.xml.xpath.XPathFactory.newInstance().newXPath();
   }
 
   public Long getVmStartTime(){
     try{
-      String expression = String.format("//hotspot_log");
-      NodeList res = (NodeList) this.xpath.compile(expression).evaluate(this.doc, XPathConstants.NODESET);
-      String value = res.item(0).getAttributes().getNamedItem("time_ms").getNodeValue();
-      return Long.decode(value);
-    } catch(Exception e){
+      String timeStamp = this.content.get(0).split("time_ms='")[1].replace("'>", "");
+      return Long.decode(timeStamp);
+    } catch(NumberFormatException e){
       System.err.println(e.getMessage());
     }
     return 0L;
@@ -52,22 +40,19 @@ class XmlParser {
   public List<Compilation> findCompilationStamps(String methodDescriptor) {
     try {
       // String expression = "//task[@method='Main main ([Ljava/lang/String;)V']";
-      String expression = String.format("//task[@method='%s']", methodDescriptor);
-      NodeList res = (NodeList) this.xpath.compile(expression).evaluate(this.doc, XPathConstants.NODESET);
-      List<Compilation> toReturn = new ArrayList<>();
-      for (int i = 0; i < res.getLength(); i++) {
-        String value = res.item(i).getAttributes().getNamedItem("stamp").getNodeValue();
-        String id = res.item(i).getAttributes().getNamedItem("compile_id").getNodeValue();
-        String kind = null;
-        if(res.item(i).getAttributes().getNamedItem("compile_kind") != null){
-          kind = res.item(i).getAttributes().getNamedItem("compile_kind").getNodeValue();
-        }
-        value = value.replace(".", "");
-        var a = new Compilation(Long.decode(value), id, kind);
-        toReturn.add(a);
 
-      }
-      return toReturn;
+      List<Compilation> comps = this.content.stream().filter(l -> l.startsWith("<task ") && l.contains(methodDescriptor))
+      .map(l -> {
+        String compileId = l.split("compile_id='")[1].split("'")[0];
+        String stamp = l.split("stamp='")[1].split("'")[0];
+        stamp = stamp.replace(".", "");
+        String kind = null;
+        if(l.contains("compile_kind")){
+          kind = l.split("compile_kind='")[1].split("'")[0];
+        }
+        return new Compilation(Long.decode(stamp), compileId, kind);
+      }).toList();
+      return comps;
     } catch (Exception e) {
       System.err.println(e.getMessage());
     }
@@ -77,36 +62,45 @@ class XmlParser {
   public List<Decompilation> findDecompilationStamps(String methodDescriptor) {
     try {
       // String expression = "//task[@method='Main main ([Ljava/lang/String;)V']";
-      String expression = String.format("//task[@method='%s']", methodDescriptor);
-      NodeList res = (NodeList) this.xpath.compile(expression).evaluate(this.doc, XPathConstants.NODESET);
-      List<Decompilation> toReturn = new ArrayList<>();
-      List<String> compileIds = new ArrayList<>();
-      for (int i = 0; i < res.getLength(); i++) {
-        String value = res.item(i).getAttributes().getNamedItem("compile_id").getNodeValue();
-        compileIds.add(value);
-      }
-      for(String compileId: compileIds){
-        String nonEntrantExpression = String.format("//make_not_entrant[@compile_id='%s']", compileId);
-        NodeList nonEntrantNodes = (NodeList) this.xpath.compile(nonEntrantExpression).evaluate(this.doc, XPathConstants.NODESET);
-        String trapExpression = String.format("//uncommon_trap[@compile_id='%s']", compileId);
-        NodeList trapNodes = (NodeList) this.xpath.compile(trapExpression).evaluate(this.doc, XPathConstants.NODESET);
-        for(int i=0; i<nonEntrantNodes.getLength(); i++){
-          var attributes = nonEntrantNodes.item(i).getAttributes();
+
+      List<String> compIds = this.content.stream().filter(l -> l.startsWith("<task ") && l.contains(methodDescriptor))
+      .map(l -> l.split("compile_id='")[1].split("'")[0]).toList();
+      List<Decompilation> docompilations = new ArrayList<>();
+      
+      for(String compileId: compIds){
+        List<String> nonEntrant = this.content.stream().filter(l ->
+           l.startsWith("<make_not_entrant") &&
+           l.contains(String.format("compile_id='%s'", compileId))).toList();
+        List<String> traps = this.content.stream().filter(l ->
+           l.startsWith("<uncommon_trap") &&
+           l.contains(String.format("compile_id='%s'", compileId))).toList();
+        for(int i=0; i<nonEntrant.size(); i++){
+          var attributes = nonEntrant.get(i);
+          String value = null;
+          if(attributes.contains("stamp=")){
+            String stamp = attributes.split("stamp='")[1].split("'")[0];
+            value = stamp.replace(".", "");
+          }
+          String kind = null;
+          if(attributes.contains("compile_kind=")){
+            kind = attributes.split("compile_kind='")[1].split("'")[0];
+          }
           String reason = null;
           String action = null;
-          if(i<trapNodes.getLength()){
-            var trapAttr = trapNodes.item(i).getAttributes();
-            reason = trapAttr.getNamedItem("reason") != null?  trapAttr.getNamedItem("reason").getNodeValue() : null;
-            action = trapAttr.getNamedItem("action") != null?  trapAttr.getNamedItem("action").getNodeValue() : null;
+          if(i<traps.size()){
+            var trapAttr = traps.get(i);
+            if(trapAttr.contains("reason=")){   
+              reason = trapAttr.split("reason='")[1].split("'")[0];
+            }
+            if(trapAttr.contains("action=")){   
+              action = trapAttr.split("action='")[1].split("'")[0];
+            }
           }
-          String value = attributes.getNamedItem("stamp") != null? attributes.getNamedItem("stamp").getNodeValue(): null;
-          String kind = attributes.getNamedItem("compile_kind") != null ? attributes.getNamedItem("compile_kind").getNodeValue(): null;
-          value = value.replace(".", "");
           Decompilation dec = new Decompilation(Long.decode(value), compileId, kind, reason, action);
-          toReturn.add(dec);          
+          docompilations.add(dec);          
         }
       }
-      return toReturn;
+      return docompilations;
     } catch (Exception e) {
       System.err.println(e.getMessage());
     }
