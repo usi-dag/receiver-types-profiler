@@ -103,7 +103,9 @@ def save_statistics(df: pd.DataFrame, output_folder: Path, name: str):
             x="id", y=column, figsize=(40, 20), legend=True, color=color
         )
         plt.title(f"{column.capitalize()} for {name}")
-        plt.savefig(output_folder.joinpath(f"{name}_{column}_bar.png"))
+        plt.savefig(
+            output_folder.joinpath(f"{name}_{column.replace(' ', '_')}_bar.png")
+        )
         plt.close()
     # scatter plot
     for column in columns:
@@ -120,14 +122,18 @@ def save_statistics(df: pd.DataFrame, output_folder: Path, name: str):
             rot=90,
         )
         plt.title(f"{column.capitalize()} for {name}")
-        plt.savefig(output_folder.joinpath(f"{name}_{column}_scatter.png"))
+        plt.savefig(
+            output_folder.joinpath(f"{name}_{column.replace(' ', '_')}_scatter.png")
+        )
         plt.close()
     for column in columns:
         cleaned = df[df[column] > 0]
         color = mpl.cm.inferno_r(np.linspace(0.4, 0.8, len(cleaned)))
         p = cleaned.boxplot(column=column, grid=False)
         plt.title(f"{column.capitalize()} for {name}")
-        plt.savefig(output_folder.joinpath(f"{name}_{column}_boxplot.png"))
+        plt.savefig(
+            output_folder.joinpath(f"{name}_{column.replace(' ', '_')}_boxplot.png")
+        )
         plt.close()
     df = df.sort_values("inversions after compilation", ascending=False)
     df.to_csv(output_folder.joinpath(f"{name}_statistics.csv"))
