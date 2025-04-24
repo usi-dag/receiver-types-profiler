@@ -1,17 +1,21 @@
 #!/bin/bash
 
 function quit(){
-	echo "Usage: $0 <dacapo or ren> <number of iterations per benchmark>"
+	echo "Usage: $0 <server or local> <dacapo or ren> <number of iterations per benchmark>"
 	exit 0
 }
 
 
-if [ "$#" -ne 2 ]; then
+if [ "$#" -ne 3 ]; then
 	quit
 fi
 
 
-case "$1" in
+MODE=$1
+SUITE=$2
+ITERATION=$3
+
+case "$SUITE" in
     "dacapo")
         FLAGS="-n 1"
     		BENCH=dacapo-23.11-MR2-chopin.jar 
@@ -29,6 +33,20 @@ case "$1" in
     quit ;;
 esac
 
+case "$MODE" in
+    "server")
+        DISLHEAP=60G
+        ANALYSISHEAP=200G
+        ;;
+    "local")
+        DISLHEAP=10G
+        ANALYSISHEAP=10G
+        ;;
+
+    *)
+    quit ;;
+esac
+
 
 ant -Ddislclass=profiler.Instrumentation -buildfile build.xml
 
@@ -38,7 +56,7 @@ fi
 
 for entry in "${benchmarks[@]}"; do
 
-  for i in $(seq $2); do 
+  for i in $(seq $ITERATION); do 
     
     processid=`$JAVA_HOME/bin/jps | grep DiSLServer | cut -d " " -f1`
 
@@ -57,13 +75,13 @@ for entry in "${benchmarks[@]}"; do
     AGENT_PATH=lib/$ARCH/libdislagent.so
     DISL_BYPASS=lib/disl-bypass.jar
     PROFILER=build/profiler.jar
-    LOG_FILE=result/compiler_log_"$1"_"$entry"_"$i".xml
+    LOG_FILE=result/compiler_log_"$SUITE"_"$entry"_"$i".xml
 
     $JAVA_HOME/bin/java -agentpath:$AGENT_PATH --patch-module java.base=$DISL_BYPASS \
     -Djava.security.manager=allow \
     --add-exports java.base/ch.usi.dag.disl.dynamicbypass=ALL-UNNAMED \
     -Xbootclasspath/a:$DISL_BYPASS:$PROFILER -noverify -cp $PROFILER \
-    -Xmx6G -Xms6G \
+    -Xmx$DISLHEAP -Xms$DISLHEAP \
     -XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation -XX:LogFile=$LOG_FILE \
     -jar $BENCH $entry $FLAGS
 
@@ -72,14 +90,14 @@ for entry in "${benchmarks[@]}"; do
     # This is some of the jankiest fix ever made and it brings shame upon my family.
     sleep 10
 
-    $JAVA_HOME/bin/java -Xmx10G -classpath analysis/target/classes/ com.msde.app.App -i output/ -c $LOG_FILE -d 1000 
+    $JAVA_HOME/bin/java -Xmx$ANALYSISHEAP -classpath analysis/target/classes/ com.msde.app.App -i output/ -c $LOG_FILE -d 1000 
 
     if [ $? -ne 0 ]; then
-      echo Something went wrong analyzing $1 $entry iteration $i
+      echo Something went wrong analyzing $SUITE $entry iteration $i
       continue
     fi
 
-    ARCHIVENAME="$1"_"$entry"_"$i".tar.gz
+    ARCHIVENAME="$SUITE"_"$entry"_"$i".tar.gz
     echo $ARCHIVENAME
     tar --use-compress-program="gzip --fast" -cf $ARCHIVENAME result
 
