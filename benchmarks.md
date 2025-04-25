@@ -23,29 +23,29 @@
 - [-] zxing not enough space
 
 # Renaissance
-- [x] scrabble
-- [-] page-rank
-- [x] future-genetic
-- [-] akka-uct instrumentation cause time out 
-- [-] movie-lens
-- [-] scala-doku
-- [x] chi-square 40G
-- [-] fj-kmeans
-- [x] rx-scrabble 4G
-- [-] db-shootout
-- [-] neo4j-analytics
-- [x] finagle-http 30G
-- [-] reactors
-- [x] dec-tree 22G
-- [x] scala-stm-bench7 15G
+- [x] scrabble --x
+- [-] page-rank --x
+- [x] future-genetic --x
+- [-] akka-uct --x
+- [-] movie-lens --x
+- [-] scala-doku --x
+- [x] chi-square 40G --x
+- [-] fj-kmeans --x
+- [x] rx-scrabble 4G --x
+- [-] db-shootout --x
+- [-] neo4j-analytics --x
+- [x] finagle-http 30G --x
+- [-] reactors --x
+- [x] dec-tree 22G --x
+- [x] scala-stm-bench7 15G --x
 - [-] naive-bayes
-- [-] als
-- [x] par-mnemonics 30G
-- [x] scala-kmeans 12G
-- [x] philosophers 30G
-- [x] log-regression 27G
+- [-] als --x
+- [x] par-mnemonics 30G --x
+- [x] scala-kmeans 12G --x
+- [x] philosophers 30G --x
+- [x] log-regression 27G --x
 - [-] gauss-mix
-- [x] mnemonics 30G
-- [x] dotty 7G
-- [-] finagle-chirper
+- [x] mnemonics 30G --x
+- [x] dotty 7G --x
+- [-] finagle-chirper --x
 
