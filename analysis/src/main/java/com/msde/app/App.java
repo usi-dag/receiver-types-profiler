@@ -143,13 +143,13 @@ public class App {
     }
 
     private static boolean threadAnalysis(File resultFolder, Map<Long, String> idToCallsite, Map<Long, String> idToClassName, Args arguments, XmlParser parser, Long startTime, File cf, Long startTimeDiff) {
-        Optional<List<Long>> maybeInfo = readBinary(cf);
+        Optional<LongList> maybeInfo = readBinary(cf);
         // System.out.println("finished reading binary");
         if (maybeInfo.isEmpty()) {
             System.err.println("Couldn't read binary file: " + cf.getAbsolutePath());
             return true;
         }
-        List<Long> info = maybeInfo.get();
+        LongList info = maybeInfo.get();
         String callsiteFileNumber = cf.getName().replace("callsite_", "").replace(".txt", "");
         File resFile = new File(resultFolder, String.format("result_%s.txt", callsiteFileNumber));
         if (resFile.exists()) {
@@ -202,87 +202,6 @@ public class App {
         left = left.replace(".", " ");
         left = left.replace("/", ".");
         return left + " " + right;
-    }
-
-
-    private static File[] tryPartitioningLargeFiles(List<File> callsiteFiles) {
-        int size = callsiteFiles.size();
-        List<File> largeFiles = callsiteFiles.stream().filter(f -> f.length() > 512 * 1024 * 1024).toList();
-        System.out.println(largeFiles.size());
-        File intermediateFolder = new File("result/");
-        for (File binaryFile : largeFiles) {
-            try {
-                try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(binaryFile.toPath().toString()))) {
-                    byte[] bytes = new byte[128 * 1024 * 1024];
-                    int len;
-                    List<List<Byte>> fileIdToLists = new ArrayList<>(17);
-                    for(int i=0; i<17; i++){
-                        fileIdToLists.add(new ArrayList<>());
-                    }
-                    int addedBytes = 0;
-                    outer:
-                    while ((len = in.read(bytes)) != -1) {
-                        for (int i = 0; i < len; i += 16) {
-                            byte[] cs = new byte[8];
-                            cs[4] = bytes[i];
-                            cs[5] = bytes[i + 1];
-                            cs[6] = bytes[i + 2];
-                            cs[7] = bytes[i + 3];
-                            long callsiteId = ByteBuffer.wrap(cs).getLong();
-                            cs[4] = bytes[i + 4];
-                            cs[5] = bytes[i + 5];
-                            cs[6] = bytes[i + 6];
-                            cs[7] = bytes[i + 7];
-                            long classNameId = ByteBuffer.wrap(cs).getLong();
-                            long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
-                            if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
-                                break outer;
-                            }
-                            long m = callsiteId % 17;
-                            List<Byte> toAdd = new ArrayList<>();
-                            for (byte b : Arrays.copyOfRange(bytes, i, i + 16)) {
-                                toAdd.add(b);
-                            }
-                            fileIdToLists.get((int)m).addAll(toAdd);
-                            addedBytes += 16;
-                            if(addedBytes== 128*1024*1024){
-                                writeBytesToFile(size, intermediateFolder, fileIdToLists);
-                                addedBytes=0;
-                                for(int k=0; k<17; k++){
-                                    fileIdToLists.set(k, new ArrayList<>());
-                                }
-                            }
-                        }
-                    }
-
-                    writeBytesToFile(size, intermediateFolder, fileIdToLists);
-                    binaryFile.delete();
-                    size+=17;
-                }
-            } catch (IOException e) {
-                System.err.println(e.getMessage());
-            }
-        }
-
-        File resultFolder = new File("result/");
-        return resultFolder.listFiles((el) -> el.getName().startsWith("callsite_"));
-
-    }
-
-    private static void writeBytesToFile(int size, File intermediateFolder, List<List<Byte>> fileIdToLists) throws IOException {
-        for (int k=0; k<17; k++) {
-            List<Byte> list = fileIdToLists.get(k);
-            File csFile = new File(intermediateFolder, String.format("callsite_%s.txt",size+ k));
-            if (!csFile.exists()) {
-                csFile.createNewFile();
-            }
-            byte[] toWrite = new byte[list.size()];
-            int j = 0;
-            for (Byte b : list) {
-                toWrite[j++] = b;
-            }
-            Files.write(csFile.toPath(), toWrite, StandardOpenOption.APPEND);
-        }
     }
 
     private static List<List<File>> partitionFileList(List<File> files, int numberOfPartitions){
@@ -476,12 +395,11 @@ public class App {
         return 0L;
     }
 
-    private static Optional<List<Long>> readBinary(File binaryFile) {
+    private static Optional<LongList> readBinary(File binaryFile) {
         try {
             // byte[] bytes = Files.readAllBytes(binaryFile.toPath());
             ByteBuffer.allocate(Long.BYTES).getLong();
-            List<Long> l = new ArrayList<>() {
-            };
+            LongList l = new LongList();
             try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(binaryFile.toPath().toString()))) {
                 byte[] bytes = new byte[128*1024*1024];
                 int len;
@@ -516,15 +434,15 @@ public class App {
     }
 
 
-    public static Map<String, Map<String, List<Long>>> reconstructCallsiteInfo(List<Long> info, Map<Long, String> idToCallsite, Map<Long, String> idToClassName) {
-        Map<String, Map<String, List<Long>>> callsiteToInfo = new HashMap<>();
+    public static Map<String, Map<String, LongList>> reconstructCallsiteInfo(LongList info, Map<Long, String> idToCallsite, Map<Long, String> idToClassName) {
+        Map<String, Map<String, LongList>> callsiteToInfo = new HashMap<>();
         for (int i = 0; i < info.size(); i += 3) {
             long csid = info.get(i);
             long cnid = info.get(i + 1);
             long timediff = info.get(i + 2);
             String callsite = idToCallsite.get(csid);
             String className = idToClassName.get(cnid);
-            callsiteToInfo.computeIfAbsent(callsite, k -> new HashMap<>()).computeIfAbsent(className, k -> new ArrayList<>()).add(timediff);
+            callsiteToInfo.computeIfAbsent(callsite, k -> new HashMap<>()).computeIfAbsent(className, k -> new LongList()).add(timediff);
         }
         return callsiteToInfo;
 
@@ -532,16 +450,16 @@ public class App {
 
     record PartitionedWindows(List<Map<String, Double>> windows, long start, long end){}
 
-    private static PartitionedWindows analyseCallsite(Map<String, List<Long>> info, long timeFrame) {
+    private static PartitionedWindows analyseCallsite(Map<String, LongList> info, long timeFrame) {
         // returns a list of windows which shows the percentages of the calls on each receiver type in that window
-        long windowStart = info.values().stream().flatMap(List::stream).mapToLong(e -> e).min().orElse(0);
-        long end = info.values().stream().flatMap(List::stream).mapToLong(e -> e).max().orElse(Long.MAX_VALUE);
+        long windowStart = info.values().stream().flatMapToLong(LongList::stream).min().orElse(0);
+        long end = info.values().stream().flatMapToLong(LongList::stream).max().orElse(Long.MAX_VALUE);
         long nIteration = ((end-windowStart)/timeFrame) + 1;
         List<Map<String, List<Long>>> windows = new ArrayList<>();
         for(int j = 0; j<nIteration; j++){
             windows.add(new HashMap<>());            
         }
-        for (Map.Entry<String, List<Long>> el : info.entrySet()) {
+        for (Map.Entry<String, LongList> el : info.entrySet()) {
             List<List<Long>> partitionedInfo = new ArrayList<>();
             for(int j=0; j<nIteration; j++){
                 partitionedInfo.add(new ArrayList<>());
