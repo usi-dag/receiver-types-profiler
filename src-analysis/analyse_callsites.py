@@ -75,14 +75,14 @@ def normalize_by_hotness(df: pd.DataFrame, hotness: Path) -> pd.DataFrame:
             "changes after compilation": "sum",
             "inversions after compilation": "sum",
             "exclusive cpu sec": custom_aggregate,
-            "inclusive cpu sec": custom_aggregate,
+            "cpu cycles": custom_aggregate,
         }
     )
     aggregated_metrics["normalized inversions after compilation"] = (
         aggregated_metrics.apply(
             lambda r: 0
-            if r["inclusive cpu sec"] == 0
-            else r["inversions after compilation"] / r["inclusive cpu sec"],
+            if r["cpu cycles"] == 0
+            else r["inversions after compilation"] / r["cpu cycles"],
             axis=1,
         )
     )

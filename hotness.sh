@@ -22,8 +22,8 @@ case "$1" in
     "ren")
     		FLAGS="-r 1"
         BENCH=renaissance-gpl-0.16.0.jar 
-        benchmarks=(scrabble page-rank future-genetic akka-uct movie-lens scala-doku chi-square fj-kmeans rx-scrabble db-shootout neo4j-analytics finagle-http reactors dec-tree scala-stm-bench7 naive-bayes als par-mnemonics scala-kmeans philosophers log-regression gauss-mix mnemonics dotty finagle-chirper)
-        # benchmarks=(rx-scrabble)
+        # benchmarks=(scrabble page-rank future-genetic akka-uct movie-lens scala-doku chi-square fj-kmeans rx-scrabble db-shootout neo4j-analytics finagle-http reactors dec-tree scala-stm-bench7 naive-bayes als par-mnemonics scala-kmeans philosophers log-regression gauss-mix mnemonics dotty finagle-chirper)
+        benchmarks=(rx-scrabble)
         ;;
 
     *)
@@ -45,7 +45,7 @@ for entry in "${benchmarks[@]}"; do
   fi
 
   $ORACLE/collect -d experiment/$entry $JAVA_HOME/bin/java -jar renaissance-gpl-0.16.0.jar $entry $FLAGS  
-  $ORACLE/er_print -viewmode user -sort e%totalcpu -functions experiment/$entry/test.1.er/ > $entry.txt
+  $ORACLE/er_print -metrics e.+cycles -viewmode user  -functions experiment/$entry/test.1.er/ > $entry.txt
   mv $entry.txt hotness/
 
 done

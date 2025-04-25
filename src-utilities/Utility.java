@@ -48,7 +48,7 @@ public class Utility {
 
         }
         default -> {
-          System.out.println("usage: [--help] [--calliset callsitefile] [--id file]");
+          System.out.println("usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid]");
           System.exit(0);
         }
       }

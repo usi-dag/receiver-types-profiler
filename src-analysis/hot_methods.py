@@ -26,7 +26,7 @@ def main():
         to_write = [";".join(e) for e in methods]
         df = pd.DataFrame(
             methods,
-            columns=["exclusive cpu sec", "inclusive cpu sec", "method_descriptor"],
+            columns=["exclusive cpu sec", "cpu cycles", "method_descriptor"],
         )
         df.to_csv(output_file, index=False)
     return
@@ -85,7 +85,7 @@ def get_hot_methods(input_file: Path, limit: int) -> List[List[str]]:
     found_methods = 0
     methods = []
     with open(input_file, "r") as f:
-        for line in f.readlines()[6:-1]:
+        for line in f.readlines()[7:-1]:
             line = line.strip()
             res = line.split(maxsplit=2)
             res[2] = re.sub(r"\.0x\w+", "", res[2])
