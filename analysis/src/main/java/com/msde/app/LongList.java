@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
+import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 
 class LongList implements Iterable<Long>{
@@ -50,7 +51,7 @@ class LongList implements Iterable<Long>{
   }
 
   public LongStream stream(){
-    LongStream s = Arrays.stream(current);
+    LongStream s = IntStream.range(0, current.length).filter(e -> e < index).mapToLong(e-> current[e]);
     return LongStream.concat(l.stream().flatMapToLong(Arrays::stream), s);
   }
 

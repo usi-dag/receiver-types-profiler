@@ -10,7 +10,6 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.locks.Lock;
@@ -67,7 +66,8 @@ public class App {
         InstrumentationFiles insFiles = getInstrumentationFiles(arguments.inputFolder);
         var idToCallsite = parseCsvMapping(insFiles.callsite);
         var idToClassName = parseCsvMapping(insFiles.className);
-        long startTime = getStartTime(insFiles.startTime);
+        // startTime is in milliseconds
+        final long startTime = getStartTime(insFiles.startTime);
         // InstrumentationFiles insFiles = null;
         // Map<Long, String> idToCallsite = null;
         // Map<Long, String> idToClassName = null;
@@ -81,17 +81,18 @@ public class App {
         assert callsiteFiles != null;
         // callsiteFiles = tryPartitioningLargeFiles(Arrays.asList(callsiteFiles));
         System.out.println("After partitioning large files.");
-        int i = 0;
+        // int i = 0;
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
-        // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.getName().equals("callsite_794.txt")).toArray(File[]::new);
+        // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.getName().equals("callsite_885.txt")).toArray(File[]::new);
         XmlParser parser = new XmlParser(arguments.compilerLog);
         runAnalysis(callsiteFiles, resultFolder, idToCallsite, idToClassName, arguments, parser, startTime);
     }
 
 
     private static void runAnalysis(File[] callsiteFiles, File resultFolder, Map<Long, String> idToCallsite, Map<Long, String> idToClassName, Args arguments, XmlParser parser, Long startTime) {
-        Long vmStartTime = parser.getVmStartTime();
-        Long startTimeDiff = startTime - vmStartTime;
+        // Milliseconds
+        final Long vmStartTime = parser.getVmStartTime();
+        final Long startTimeDiff = startTime - vmStartTime;
         int numberOfPartitions = 4;
         List<List<File>> partitions = partitionFileList(List.of(callsiteFiles), numberOfPartitions);
         List<Thread> threads = new ArrayList<>();
@@ -169,6 +170,7 @@ public class App {
             // compilations are given in milliseconds from the start time while
             // the instrumentation is kept in microseconds.
             List<Compilation> compilations = parser.findCompilationStamps(methodDescriptor);
+            // NOTE: After this point compilations and decompilations will be in microseconds.
             compilations = compilations.stream().map(e -> e.withTime((e.time() - startTimeDiff) * 1000))
                     .sorted(Comparator.comparing(Compilation::time)).toList();
             // compilations = compilations.stream().map(e -> (e-startTimeDiff)*1000).sorted().toList();
@@ -450,11 +452,15 @@ public class App {
 
     record PartitionedWindows(List<Map<String, Double>> windows, long start, long end){}
 
-    private static PartitionedWindows analyseCallsite(Map<String, LongList> info, long timeFrame) {
+    // record PartitionedWindow(Map<String, Double> value, int windowIndex){}
+
+    private static PartitionedWindows analyseCallsite(Map<String, LongList> info, final long timeFrame) {
         // returns a list of windows which shows the percentages of the calls on each receiver type in that window
+        // WindowStart and end are in microseconds.
         long windowStart = info.values().stream().flatMapToLong(LongList::stream).min().orElse(0);
         long end = info.values().stream().flatMapToLong(LongList::stream).max().orElse(Long.MAX_VALUE);
         long nIteration = ((end-windowStart)/timeFrame) + 1;
+        // List of receiver type to list of time deltas of method invocation.
         List<Map<String, List<Long>>> windows = new ArrayList<>();
         for(int j = 0; j<nIteration; j++){
             windows.add(new HashMap<>());            
@@ -481,68 +487,137 @@ public class App {
         return new PartitionedWindows(partitionedWindows, windowStart, end);
     }
     
-    private static List<PrintInformation> findChanges(PartitionedWindows windows, long window, long startTime,
+    private static List<PrintInformation> findChanges(PartitionedWindows windows, final long window, final long startTime,
          List<Compilation> compilationTasks, List<Decompilation> decompilations) {
+        // Compilation and decompilations are given as offset in microseconds from the startTime
         
         List<Map<String, Double>> pw = windows.windows;
-        double threshold = 0.1;
+        final double threshold = 0.1;
         List<PrintInformation> changes = new ArrayList<>();
         int compilationIter = 0;
         int decompilationIter = 0;
-        int offset = (int) (windows.start/window);
+        final int indexOffset = (int) (windows.start/window);
+        // the window start offset is in microseconds, the start time is in millisecond
+        final long firstWindowStartTime = startTime + (windows.start/1000);
+        // [A] [] [A] [] [A] [] [B]
+        // [][][A] [] [A] [] [A] [] [B]
+        // [A] [] [] [] [A] [] [B]
+        Optional<Map<String, Double>> lastValidWindow = Optional.empty();
         for (int i = 0; i < pw.size() - 1; i++) {
             var w1 = pw.get(i);
             var w2 = pw.get(i + 1);
+
+            boolean w1Empty = w1.values().stream().mapToDouble(e->e).sum() == 0.0;
+            boolean w2Empty = w2.values().stream().mapToDouble(e->e).sum() == 0.0;
+            if (compilationIter < compilationTasks.size() && 
+                    firstWindowStartTime + i * window / 1000 > startTime + compilationTasks.get(compilationIter).time() / 1000) {
+                var ct = compilationTasks.get(compilationIter++);
+                changes.add(ct);
+            }
+            if (decompilationIter < decompilations.size()
+                    && firstWindowStartTime + i * window / 1000 > startTime + decompilations.get(decompilationIter).time() / 1000) {
+                var dt = decompilations.get(decompilationIter++);
+                changes.add(dt);
+            }
             for (String k : w1.keySet()) {
+                if(w1Empty && w2Empty){
+                    continue;
+                }
+                if(w1Empty){
+                    if(!lastValidWindow.isEmpty()){
+                        double lastV = lastValidWindow.get().get(k);
+                        double v2 = w2.get(k);
+                        double d = Math.abs(lastV - v2);
+                        // TODO: changes the way RatioChange is displayed.
+                        if(d > threshold){
+                            changes.add(new RatioChange(indexOffset+i, k, lastV, v2, d));
+                        }
+                    }
+                    lastValidWindow = Optional.of(w2);
+                    continue;
+                }
+                if(w2Empty){
+                    lastValidWindow = Optional.of(w1);
+                    continue;
+                }
                 var v1 = w1.get(k);
                 var v2 = w2.get(k);
                 double diff = Math.abs(v1 - v2);
-                if(compilationIter < compilationTasks.size() && startTime+i*window > startTime+compilationTasks.get(compilationIter).time()){
-                    var ct = compilationTasks.get(compilationIter++);
-                    changes.add(ct);
-                }
-                if(decompilationIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decompilationIter).time()){
-                    var dt = decompilations.get(decompilationIter++);
-                    changes.add(dt);
-                }
                 if (diff > threshold) {
-                    changes.add(new RatioChange(offset+i, k, v1, v2, diff));
+                    changes.add(new RatioChange(indexOffset+i, k, v1, v2, diff));
                 }
+                lastValidWindow = Optional.of(w1);
             }
         }
         return changes;
     }
 
-    private static List<PrintInformation> findInversions(PartitionedWindows windows, long window, long startTime,
+    private static List<PrintInformation> findInversions(PartitionedWindows windows, final long window, final long startTime,
          List<Compilation> compilationTasks, List<Decompilation> decompilations) {
         List<Map<String, Double>> pw = windows.windows;
         List<PrintInformation> inversions = new ArrayList<>();
-        int offset = (int) (windows.start/window);
+        final int offset = (int) (windows.start/window);
         int compIter = 0;
         int decIter = 0;
+        // the window offset start is in microsecond, the startTime is in milliseconds
+        final long firstWindowStartTime = startTime + (windows.start/1000);
+        Optional<Map<String, Double>> lastValidWindow = Optional.empty();
         for (int i = 0; i < pw.size() - 1; i++) {
             var w1 = pw.get(i);
             var w2 = pw.get(i + 1);
-
+            // [A] [] [A] [] [A] [] [B]
+            // [][][A] [] [A] [] [A] [] [B]
+            // [A] [] [] [] [A] [] [B]
+            boolean w1Empty = w1.values().stream().mapToDouble(e->e).sum() == 0.0;
+            boolean w2Empty = w2.values().stream().mapToDouble(e->e).sum() == 0.0;
             String[] keys = w1.keySet().toArray(String[]::new);
-            for (int j = 0; j < w1.size() - 1; j++) {
-                String k1 = keys[j];
-                String k2 = keys[j + 1];
-                Double valKey1Window1 = w1.get(k1);
-                Double valKey2Window1 = w1.get(k2);
-                Double valKey1Window2 = w2.get(k1);
-                Double valKey2Window2 = w2.get(k2);
-                if(compIter< compilationTasks.size() && startTime+i*window > startTime+compilationTasks.get(compIter).time()){
-                    Compilation ct = compilationTasks.get(compIter++);
-                    inversions.add(ct);
-                }
-                if(decIter< decompilations.size() && startTime+i*window > startTime+decompilations.get(decIter).time()){
-                    var dt = decompilations.get(decIter++);
-                    inversions.add(dt);
-                }
-                if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
-                    inversions.add(new Inversion(offset+i, offset+i + 1, k1, k2, valKey1Window1, valKey2Window1,
-                            valKey1Window2, valKey2Window2));
+
+            if (compIter < compilationTasks.size() &&
+                    firstWindowStartTime + i * window / 1000 > startTime + compilationTasks.get(compIter).time()/1000) {
+                Compilation ct = compilationTasks.get(compIter++);
+                inversions.add(ct);
+            }
+            if (decIter < decompilations.size() &&
+                    firstWindowStartTime + i * window / 1000 > startTime + decompilations.get(decIter).time()/1000) {
+                var dt = decompilations.get(decIter++);
+                inversions.add(dt);
+            }
+            if(w1Empty && w2Empty){
+                continue;
+            }
+            for (int j = 0; j < w1.size(); j++) {
+                for(int k = j+1; k < w1.size(); k++){
+                    if(w1Empty){
+                        if(!lastValidWindow.isEmpty()){
+                            // TODO: changes the way inversion are displayed.
+                            String k1 = keys[j];
+                            String k2 = keys[k];
+                            Double valKey1Window1 = lastValidWindow.get().get(k1);
+                            Double valKey2Window1 = lastValidWindow.get().get(k2);
+                            Double valKey1Window2 = w2.get(k1);
+                            Double valKey2Window2 = w2.get(k2);
+                            if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
+                                inversions.add(new Inversion(offset+i, offset+i + 1, k1, k2, valKey1Window1, valKey2Window1,
+                                        valKey1Window2, valKey2Window2));
+                            }
+                        }
+                        lastValidWindow = Optional.of(w2);
+                        continue;
+                    }
+                    if(w2Empty){
+                        lastValidWindow = Optional.of(w1);
+                        continue;
+                    }
+                    String k1 = keys[j];
+                    String k2 = keys[k];
+                    Double valKey1Window1 = w1.get(k1);
+                    Double valKey2Window1 = w1.get(k2);
+                    Double valKey1Window2 = w2.get(k1);
+                    Double valKey2Window2 = w2.get(k2);
+                    if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
+                        inversions.add(new Inversion(offset+i, offset+i + 1, k1, k2, valKey1Window1, valKey2Window1,
+                                valKey1Window2, valKey2Window2));
+                    }
                 }
             }
         }

@@ -97,6 +97,10 @@ for entry in "${benchmarks[@]}"; do
       continue
     fi
 
+    if [ $MODE = "local" ]; then
+      continue
+    fi
+
     ARCHIVENAME="$SUITE"_"$entry"_"$i".tar.gz
     echo $ARCHIVENAME
     cp output/* result/
