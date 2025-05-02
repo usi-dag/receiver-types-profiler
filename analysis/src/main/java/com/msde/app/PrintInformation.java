@@ -1,7 +1,10 @@
 package com.msde.app;
 
+import java.util.Map;
+import java.util.stream.Collectors;
+
 public interface PrintInformation {
-  public String[] formatInformation();
+  String[] formatInformation();
 }
 
 record RatioChange(int window, String className, double before,
@@ -60,6 +63,20 @@ record Inversion(int window1, int window2, String className1, String className2,
         this.valKey2Window1);
     result[2] = String.format("Second Window: %s - %s, %s - %s\n", this.className1, this.className2,
         this.valKey1Window2, this.valKey2Window2);
+    return result;
+  }
+}
+
+record SpicyInversion(int window1, int window2, Map<String, Double> w1, Map<String, Double> w2) implements PrintInformation {
+  @Override
+  public String[] formatInformation() {
+    String[] result = new String[3];
+
+    result[0] = String.format("windows: %s - %s\n",this.window1, this.window2);
+    String firstWindow = w1.entrySet().stream().map(e -> String.format("%s: %f", e.getKey(), e.getValue())).collect(Collectors.joining(", "));
+    String secondWindow = w2.entrySet().stream().map(e -> String.format("%s: %f", e.getKey(), e.getValue())).collect(Collectors.joining(", "));
+    result[1] = String.format("    First Window: %s\n", firstWindow);
+    result[2] = String.format("    Second Window: %s\n", secondWindow);
     return result;
   }
 }

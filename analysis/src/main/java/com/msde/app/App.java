@@ -83,7 +83,7 @@ public class App {
         System.out.println("After partitioning large files.");
         // int i = 0;
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
-        // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.getName().equals("callsite_885.txt")).toArray(File[]::new);
+        // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.getName().equals("callsite_114.txt")).toArray(File[]::new);
         XmlParser parser = new XmlParser(arguments.compilerLog);
         runAnalysis(callsiteFiles, resultFolder, idToCallsite, idToClassName, arguments, parser, startTime);
     }
@@ -152,7 +152,7 @@ public class App {
         }
         LongList info = maybeInfo.get();
         String callsiteFileNumber = cf.getName().replace("callsite_", "").replace(".txt", "");
-        File resFile = new File(resultFolder, String.format("result_%s.txt", callsiteFileNumber));
+        File resFile = new File(resultFolder, String.format("result_%03d.txt", Integer.parseInt(callsiteFileNumber)));
         if (resFile.exists()) {
             resFile.delete();
         }
@@ -320,7 +320,7 @@ public class App {
                         if(readBytes >= 128*1024*1024){
                             for(Map.Entry<Long, List<Byte>> entry: fileIdToBytes.entrySet()){
                                 locks.get(entry.getKey()).lock();
-                                File csFile = new File(intermediateFolder, String.format("callsite_%s.txt", entry.getKey()));
+                                File csFile = new File(intermediateFolder, String.format("callsite_%03d.txt", entry.getKey()));
                                 if(!csFile.exists()){
                                     csFile.createNewFile();
                                 }
@@ -571,6 +571,15 @@ public class App {
             boolean w1Empty = w1.values().stream().mapToDouble(e->e).sum() == 0.0;
             boolean w2Empty = w2.values().stream().mapToDouble(e->e).sum() == 0.0;
             String[] keys = w1.keySet().toArray(String[]::new);
+            String[] keysSorted1 = Arrays.stream(keys).filter(k->w1.get(k)!=0).sorted((k1, k2) -> {
+                int s = Double.compare(w1.get(k2), w1.get(k1));
+                return s;
+            }).toArray(String[]::new);
+
+            String[] keysSorted2 = Arrays.stream(keysSorted1).filter(k-> w2.get(k)!=0).sorted((k1, k2) -> {
+                int s = Double.compare(w2.get(k2), w2.get(k1));
+                return s;
+            }).toArray(String[]::new);
 
             if (compIter < compilationTasks.size() &&
                     firstWindowStartTime + i * window / 1000 > startTime + compilationTasks.get(compIter).time()/1000) {
@@ -585,43 +594,78 @@ public class App {
             if(w1Empty && w2Empty){
                 continue;
             }
-            for (int j = 0; j < w1.size(); j++) {
-                for(int k = j+1; k < w1.size(); k++){
-                    if(w1Empty){
-                        if(!lastValidWindow.isEmpty()){
-                            // TODO: changes the way inversion are displayed.
-                            String k1 = keys[j];
-                            String k2 = keys[k];
-                            Double valKey1Window1 = lastValidWindow.get().get(k1);
-                            Double valKey2Window1 = lastValidWindow.get().get(k2);
-                            Double valKey1Window2 = w2.get(k1);
-                            Double valKey2Window2 = w2.get(k2);
-                            if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
-                                inversions.add(new Inversion(offset+i, offset+i + 1, k1, k2, valKey1Window1, valKey2Window1,
-                                        valKey1Window2, valKey2Window2));
-                            }
-                        }
-                        lastValidWindow = Optional.of(w2);
-                        continue;
-                    }
-                    if(w2Empty){
-                        lastValidWindow = Optional.of(w1);
-                        continue;
-                    }
-                    String k1 = keys[j];
-                    String k2 = keys[k];
-                    Double valKey1Window1 = w1.get(k1);
-                    Double valKey2Window1 = w1.get(k2);
-                    Double valKey1Window2 = w2.get(k1);
-                    Double valKey2Window2 = w2.get(k2);
-                    if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
-                        inversions.add(new Inversion(offset+i, offset+i + 1, k1, k2, valKey1Window1, valKey2Window1,
-                                valKey1Window2, valKey2Window2));
+
+            if(w1Empty){
+                if(!lastValidWindow.isEmpty()){
+                    Map<String, Double> aaaaa = lastValidWindow.get();
+                    String[] keysSortedLV = Arrays.stream(keysSorted2).filter(k-> aaaaa.get(k)!=0).sorted((k1, k2) -> {
+                        int s = Double.compare(aaaaa.get(k2), aaaaa.get(k1));
+                        return s;
+                    }).toArray(String[]::new);
+                    if(!compareRanking(keysSortedLV, keysSorted2)){
+                        inversions.add(new SpicyInversion(offset+i, offset+i + 1, aaaaa, w2));
                     }
                 }
+                lastValidWindow = Optional.of(w2);
+                continue;
             }
+            if(w2Empty){
+                lastValidWindow = Optional.of(w1);
+                continue;
+            }
+            if(!compareRanking(keysSorted1, keysSorted2)){
+                inversions.add(new SpicyInversion(offset+i, offset+i + 1, w1, w2));
+            }
+            lastValidWindow = Optional.of(w1);
+            
+            // for (int j = 0; j < w1.size(); j++) {
+            //     for(int k = j+1; k < w1.size(); k++){
+            //         if(w1Empty){
+            //             if(!lastValidWindow.isEmpty()){
+            //                 // TODO: changes the way inversion are displayed.
+            //                 String k1 = keys[j];
+            //                 String k2 = keys[k];
+            //                 Double valKey1Window1 = lastValidWindow.get().get(k1);
+            //                 Double valKey2Window1 = lastValidWindow.get().get(k2);
+            //                 Double valKey1Window2 = w2.get(k1);
+            //                 Double valKey2Window2 = w2.get(k2);
+            //                 if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
+            //                     inversions.add(new Inversion(offset+i, offset+i + 1, k1, k2, valKey1Window1, valKey2Window1,
+            //                             valKey1Window2, valKey2Window2));
+            //                 }
+            //             }
+            //             lastValidWindow = Optional.of(w2);
+            //             continue;
+            //         }
+            //         if(w2Empty){
+            //             lastValidWindow = Optional.of(w1);
+            //             continue;
+            //         }
+            //         String k1 = keys[j];
+            //         String k2 = keys[k];
+            //         Double valKey1Window1 = w1.get(k1);
+            //         Double valKey2Window1 = w1.get(k2);
+            //         Double valKey1Window2 = w2.get(k1);
+            //         Double valKey2Window2 = w2.get(k2);
+            //         if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
+            //             inversions.add(new Inversion(offset+i, offset+i + 1, k1, k2, valKey1Window1, valKey2Window1,
+            //                     valKey1Window2, valKey2Window2));
+            //         }
+            //     }
+            // }
         }
         return inversions;
+    }
+
+    private static boolean compareRanking(String[] arr1, String[] arr2) {
+        String[] a1 = arr1.length < arr2.length ? arr1 : arr2;
+        String[] a2 = arr1.length < arr2.length ? arr2 : arr1;
+        for(int i = 0; i < a1.length; i++){
+            if(!a1[i].equals(a2[i])){
+                return false;
+            }
+        }
+        return true;
     }
 
     private static StringBuilder formatAnalysisResult(String cs, List<PrintInformation> changes, List<PrintInformation> inversions, long start, long delta) {
