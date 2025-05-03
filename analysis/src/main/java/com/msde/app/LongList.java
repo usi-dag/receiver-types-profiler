@@ -55,6 +55,33 @@ class LongList implements Iterable<Long>{
     return LongStream.concat(l.stream().flatMapToLong(Arrays::stream), s);
   }
 
+
+  public long min(){
+    long min = Long.MAX_VALUE;
+    for(long[] arr: l){
+      for(int i=0; i<arr.length; i++){
+        min = arr[i] < min ? arr[i]: min;
+      }
+    }
+    for(int i=0; i<index; i++){
+      min = current[i] < min ? current[i]: min;
+    }
+    return min;
+  }
+
+  public long max(){
+    long max = Long.MIN_VALUE;
+    for(long[] arr: l){
+      for(int i=0; i<arr.length; i++){
+        max = arr[i] > max ? arr[i]: max;
+      }
+    }
+    for(int i=0; i<index; i++){
+      max = current[i] > max ? current[i]: max;
+    }
+    return max;
+  }
+
   @Override
   public Iterator<Long> iterator() {
     Iterator<Long> it = new Iterator<>() {
