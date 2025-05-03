@@ -80,3 +80,16 @@ record SpicyInversion(int window1, int window2, Map<String, Double> w1, Map<Stri
     return result;
   }
 }
+record SpicyRatioChange(int window, Map<String, Double> w1, Map<String, Double> w2) implements PrintInformation {
+
+  @Override
+  public String[] formatInformation() {
+    String[] result = new String[3];
+    String firstWindow = w1.entrySet().stream().map(e -> String.format("%s: %f", e.getKey(), e.getValue())).collect(Collectors.joining(", "));
+    String secondWindow = w2.entrySet().stream().map(e -> String.format("%s: %f", e.getKey(), e.getValue())).collect(Collectors.joining(", "));
+    result[0] = String.format("window before: %s - window after: %s\n", this.window, this.window + 1);
+    result[1] = String.format("    First Window: %s\n", firstWindow);
+    result[2] = String.format("    Second Window: %s\n", secondWindow);
+    return result;
+  }
+}

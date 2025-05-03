@@ -10,25 +10,11 @@ import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 
 /**
  */
 public class App {
-    public static ConcurrentMap<Long, Lock> locks = new ConcurrentHashMap<>();
-
-
-    static{
-        for(long i= 0; i<1000; i++){
-            locks.computeIfAbsent(i, k -> new ReentrantLock());
-        }
-        
-    }
-
     record Args(File inputFolder, long delta, File compilerLog){}
 
     private static Args parseArgs(String[] args){
@@ -73,7 +59,7 @@ public class App {
         // Map<Long, String> idToClassName = null;
 
         // threads
-        partitionFiles(Arrays.asList(insFiles.partials));
+        FilePartitioner.partitionFiles(Arrays.asList(insFiles.partials));
         System.out.println("After partitioningfiles.");
 
         File resultFolder = new File("result/");
@@ -94,7 +80,7 @@ public class App {
         final Long vmStartTime = parser.getVmStartTime();
         final Long startTimeDiff = startTime - vmStartTime;
         int numberOfPartitions = 4;
-        List<List<File>> partitions = partitionFileList(List.of(callsiteFiles), numberOfPartitions);
+        List<List<File>> partitions = FilePartitioner.partitionFileList(List.of(callsiteFiles), numberOfPartitions);
         List<Thread> threads = new ArrayList<>();
         List<Integer> threadFinished = new ArrayList<>();
         for(int i=0; i<numberOfPartitions; i++){
@@ -204,157 +190,6 @@ public class App {
         left = left.replace(".", " ");
         left = left.replace("/", ".");
         return left + " " + right;
-    }
-
-    private static List<List<File>> partitionFileList(List<File> files, int numberOfPartitions){
-        int partitionSize = files.size()/numberOfPartitions;
-        List<List<File>> partitions = new ArrayList<>();
-        for (int i = 0; i < numberOfPartitions; i++) {
-            int beg = i * partitionSize;
-            int end = Math.min(beg + partitionSize, files.size());
-            if (i == numberOfPartitions - 1) {
-                end = files.size();
-            }
-            partitions.add(files.subList(beg, end));
-        }
-        return partitions;
-
-    }
-
-    private static void partitionFiles(List<File> partials) {
-        int numberOfPartitions = 4;
-        int partitionSize = partials.size()/ numberOfPartitions;
-        List<List<File>> partitions = new ArrayList<>();
-        for (int i = 0; i < numberOfPartitions; i++) {
-            int beg = i * partitionSize;
-            int end = Math.min(beg + partitionSize, partials.size());
-            if (i == numberOfPartitions - 1) {
-                end = partials.size();
-            }
-            partitions.add(partials.subList(beg, end));
-        }
-        List<Integer> threadFinished = Arrays.asList(0, 0, 0, 0);
-        List<Thread> threads = new ArrayList<>();
-        int i = 0;
-        for (List<File> binaryFiles : partitions) {
-            int id = i++;
-            Thread t = new Thread(() -> {
-                int current = 0;
-                for (File binaryFile : binaryFiles) {
-                    writeIntermediateFiles(binaryFile);
-                    current++;
-                    threadFinished.set(id, current);
-                }
-            });
-            t.start();
-            threads.add(t);
-        }
-        Thread logThread = new Thread(()->{
-            while(threadFinished.stream().mapToInt(el->el).sum()!= partials.size()){
-                try{
-                    Thread.sleep(500);
-                } catch(InterruptedException e){
-                    System.err.println(e.getMessage());
-                }
-                String progress = IntStream.range(0, threadFinished.size()).mapToObj(el -> String.format("%s - %s/%s", el, threadFinished.get(el), partitions.get(el).size())).collect(Collectors.joining(", "));
-                System.out.print("\33[2K\rPartition progess: "+progress);
-            }
-            String progress = IntStream.range(0, threadFinished.size()).mapToObj(el -> String.format("%s - %s/%s", el, threadFinished.get(el), partitions.get(el).size())).collect(Collectors.joining(", "));
-            System.out.print("\33[2K\rPartition progess: "+progress);
-            System.out.println();
-        });
-        logThread.start();
-
-
-        for (Thread t : threads) {
-            try {
-                t.join();
-            } catch (InterruptedException e) {
-                System.err.println(e.getMessage());
-            }
-        }
-
-        try{
-            logThread.join();
-        } catch(InterruptedException e){
-            System.err.println(e.getMessage());
-        }
-        
-    }
-
-    
-    private static void writeIntermediateFiles(File binaryFile) {
-        try {
-            File intermediateFolder = new File("result/");
-            intermediateFolder.mkdir();
-            
-            Map<Long, List<Byte>> fileIdToBytes = new HashMap<>();
-            int readBytes = 0;
-            try(BufferedInputStream in = new BufferedInputStream(new FileInputStream(binaryFile.toString()))){
-                byte[] bytes = new byte[128*1024*1024];
-                int len;
-                outer: while((len = in.read(bytes)) != -1){
-                    for (int i = 0; i < len; i += 16) {
-                        byte[] cs = new byte[8];
-                        cs[4] = bytes[i];
-                        cs[5] = bytes[i + 1];
-                        cs[6] = bytes[i + 2];
-                        cs[7] = bytes[i + 3];
-                        long callsiteId = ByteBuffer.wrap(cs).getLong();
-                        cs[4] = bytes[i + 4];
-                        cs[5] = bytes[i + 5];
-                        cs[6] = bytes[i + 6];
-                        cs[7] = bytes[i + 7];
-                        long classNameId = ByteBuffer.wrap(cs).getLong();
-                        long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
-                        if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
-                            break outer;
-                        }
-                        long m = callsiteId % 1000;
-                        List<Byte> toAdd = new ArrayList<>();
-                        for(byte b: Arrays.copyOfRange(bytes, i, i+16)){
-                            toAdd.add(b);
-                        }
-                        fileIdToBytes.computeIfAbsent(m, k-> new ArrayList<>()).addAll(toAdd);
-                        readBytes += 16;
-                        if(readBytes >= 128*1024*1024){
-                            for(Map.Entry<Long, List<Byte>> entry: fileIdToBytes.entrySet()){
-                                locks.get(entry.getKey()).lock();
-                                File csFile = new File(intermediateFolder, String.format("callsite_%03d.txt", entry.getKey()));
-                                if(!csFile.exists()){
-                                    csFile.createNewFile();
-                                }
-                                byte[] toWrite = new byte[entry.getValue().size()];
-                                int j = 0;
-                                for(Byte b: entry.getValue()){
-                                    toWrite[j++] = b;
-                                }
-                                Files.write(csFile.toPath(), toWrite, StandardOpenOption.APPEND);
-                                locks.get(entry.getKey()).unlock();
-                            }
-                            fileIdToBytes.clear();
-                        }
-                    }
-                }
-            }
-            for(Map.Entry<Long, List<Byte>> entry: fileIdToBytes.entrySet()){
-                locks.get(entry.getKey()).lock();
-                File csFile = new File(intermediateFolder, String.format("callsite_%s.txt", entry.getKey()));
-                if(!csFile.exists()){
-                    csFile.createNewFile();
-                }
-                byte[] toWrite = new byte[entry.getValue().size()];
-                int i = 0;
-                for(Byte b: entry.getValue()){
-                    toWrite[i++] = b;
-                }
-                Files.write(csFile.toPath(), toWrite, StandardOpenOption.APPEND);
-                locks.get(entry.getKey()).unlock();
-            }
-            binaryFile.delete();
-        } catch (IOException e) {
-            System.err.println(e.getMessage());
-        }
     }
 
     record InstrumentationFiles(File[] partials, File className, File callsite, File startTime) {
@@ -519,35 +354,34 @@ public class App {
                 var dt = decompilations.get(decompilationIter++);
                 changes.add(dt);
             }
-            for (String k : w1.keySet()) {
-                if(w1Empty && w2Empty){
-                    continue;
-                }
-                if(w1Empty){
-                    if(!lastValidWindow.isEmpty()){
-                        double lastV = lastValidWindow.get().get(k);
-                        double v2 = w2.get(k);
-                        double d = Math.abs(lastV - v2);
-                        // TODO: changes the way RatioChange is displayed.
-                        if(d > threshold){
-                            changes.add(new RatioChange(indexOffset+i, k, lastV, v2, d));
-                        }
-                    }
-                    lastValidWindow = Optional.of(w2);
-                    continue;
-                }
-                if(w2Empty){
-                    lastValidWindow = Optional.of(w1);
-                    continue;
-                }
-                var v1 = w1.get(k);
-                var v2 = w2.get(k);
-                double diff = Math.abs(v1 - v2);
-                if (diff > threshold) {
-                    changes.add(new RatioChange(indexOffset+i, k, v1, v2, diff));
-                }
-                lastValidWindow = Optional.of(w1);
+            // for (String k : w1.keySet()) {
+            if(w1Empty && w2Empty){
+                continue;
             }
+            if(w1Empty){
+                if(!lastValidWindow.isEmpty()){
+                    Optional<Double> d = lastValidWindow.get().entrySet().stream()
+                            .map((el) -> Math.abs(el.getValue() - w2.get(el.getKey())))
+                            .filter(el -> el > threshold).findAny();
+                    if(d.isPresent()){
+                        changes.add(new SpicyRatioChange(indexOffset+i, lastValidWindow.get(), w2));
+                    }
+                }
+                lastValidWindow = Optional.of(w2);
+                continue;
+            }
+            if(w2Empty){
+                lastValidWindow = Optional.of(w1);
+                continue;
+            }
+            Optional<Double> d = w1.entrySet().stream()
+                    .map((el) -> Math.abs(el.getValue() - w2.get(el.getKey())))
+                    .filter(el -> el > threshold).findAny();
+            if(d.isPresent()){
+                changes.add(new SpicyRatioChange(indexOffset+i, w1, w2));
+            }
+            lastValidWindow = Optional.of(w1);
+            // }
         }
         return changes;
     }
@@ -674,7 +508,9 @@ public class App {
         if (!changes.isEmpty()) {
             result.append(String.format("%sChanges[start time = %s, window size = %s]:\n", indent, start, delta));
             for (PrintInformation change : changes) {
-                result.append(String.format("%s%s", indent.repeat(2), change.formatInformation()[0]));
+                for(String s: change.formatInformation()){
+                    result.append(String.format("%s%s", indent.repeat(2), s));
+                }
             }
         }
         if (inversions.isEmpty()) {
