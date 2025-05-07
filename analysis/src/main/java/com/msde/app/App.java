@@ -410,7 +410,7 @@ public class App {
                 return s;
             }).toArray(String[]::new);
 
-            String[] keysSorted2 = Arrays.stream(keysSorted1).filter(k-> w2.get(k)!=0).sorted((k1, k2) -> {
+            String[] keysSorted2 = Arrays.stream(keys).filter(k-> w2.get(k)!=0).sorted((k1, k2) -> {
                 int s = Double.compare(w2.get(k2), w2.get(k1));
                 return s;
             }).toArray(String[]::new);
@@ -432,7 +432,7 @@ public class App {
             if(w1Empty){
                 if(!lastValidWindow.isEmpty()){
                     Map<String, Double> aaaaa = lastValidWindow.get();
-                    String[] keysSortedLV = Arrays.stream(keysSorted2).filter(k-> aaaaa.get(k)!=0).sorted((k1, k2) -> {
+                    String[] keysSortedLV = Arrays.stream(keys).filter(k-> aaaaa.get(k)!=0).sorted((k1, k2) -> {
                         int s = Double.compare(aaaaa.get(k2), aaaaa.get(k1));
                         return s;
                     }).toArray(String[]::new);
@@ -452,41 +452,6 @@ public class App {
             }
             lastValidWindow = Optional.of(w1);
             
-            // for (int j = 0; j < w1.size(); j++) {
-            //     for(int k = j+1; k < w1.size(); k++){
-            //         if(w1Empty){
-            //             if(!lastValidWindow.isEmpty()){
-            //                 // TODO: changes the way inversion are displayed.
-            //                 String k1 = keys[j];
-            //                 String k2 = keys[k];
-            //                 Double valKey1Window1 = lastValidWindow.get().get(k1);
-            //                 Double valKey2Window1 = lastValidWindow.get().get(k2);
-            //                 Double valKey1Window2 = w2.get(k1);
-            //                 Double valKey2Window2 = w2.get(k2);
-            //                 if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
-            //                     inversions.add(new Inversion(offset+i, offset+i + 1, k1, k2, valKey1Window1, valKey2Window1,
-            //                             valKey1Window2, valKey2Window2));
-            //                 }
-            //             }
-            //             lastValidWindow = Optional.of(w2);
-            //             continue;
-            //         }
-            //         if(w2Empty){
-            //             lastValidWindow = Optional.of(w1);
-            //             continue;
-            //         }
-            //         String k1 = keys[j];
-            //         String k2 = keys[k];
-            //         Double valKey1Window1 = w1.get(k1);
-            //         Double valKey2Window1 = w1.get(k2);
-            //         Double valKey1Window2 = w2.get(k1);
-            //         Double valKey2Window2 = w2.get(k2);
-            //         if (valKey1Window1.compareTo(valKey2Window1) != valKey1Window2.compareTo(valKey2Window2)) {
-            //             inversions.add(new Inversion(offset+i, offset+i + 1, k1, k2, valKey1Window1, valKey2Window1,
-            //                     valKey1Window2, valKey2Window2));
-            //         }
-            //     }
-            // }
         }
         return inversions;
     }
