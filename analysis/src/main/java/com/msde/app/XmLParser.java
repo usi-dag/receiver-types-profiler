@@ -80,8 +80,15 @@ class XmlParser {
       List<String> compIds = this.content.stream().filter(l -> l.startsWith("<task ") && l.contains(methodDescriptor))
       .map(l -> l.split("compile_id='")[1].split("'")[0]).toList();
       List<Decompilation> docompilations = new ArrayList<>();
+
+      List<String> nMethodCompIds = this.content.stream().filter(l -> l.startsWith("<nmethod ") && l.contains(methodDescriptor))
+      .map(l -> l.split("compile_id='")[1].split("'")[0]).collect(Collectors.toCollection(ArrayList::new));
+
+      List<String> cc = compIds.stream().filter(c-> !nMethodCompIds.contains(c)).toList();
+
+      nMethodCompIds.addAll(cc);
       
-      for(String compileId: compIds){
+      for(String compileId: nMethodCompIds){
         List<String> nonEntrant = this.content.stream().filter(l ->
            l.startsWith("<make_not_entrant") &&
            l.contains(String.format("compile_id='%s'", compileId))).toList();
