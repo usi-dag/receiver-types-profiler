@@ -1,7 +1,9 @@
 package profiler;
 
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.nio.MappedByteBuffer;
@@ -9,6 +11,7 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Map.Entry;
 import java.text.SimpleDateFormat;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,6 +25,7 @@ public class Profiler{
     public final static long length = 3*512*1024;
     private final static ConcurrentHashMap<String, Long> classNameToId = new ConcurrentHashMap<>();
     private static final AtomicInteger nextAvailableFileNumber = new AtomicInteger();
+    private final static HashMap<String, Long> ctoi = new HashMap<>();
 
     static {
       beginning = System.nanoTime();
@@ -35,6 +39,23 @@ public class Profiler{
       outputDir = new File("output/");
       if(!outputDir.isDirectory()){
         var res = outputDir.mkdir();
+      }
+
+      try{
+        BufferedReader br = new BufferedReader(new FileReader(new File(outputDir, "extracted.csv")));
+        String line;
+        while ((line = br.readLine()) != null) {
+            String[] parts = line.split(",");
+            String key = parts[0].trim();
+            long val = Long.parseLong(parts[1]);
+            id = val > id? val: id;
+            ctoi.put(key, val);
+        }
+        br.close();
+
+        
+      }catch(IOException e){
+        
       }
 
       // shutdownhook
@@ -67,7 +88,12 @@ public class Profiler{
       long time = System.nanoTime();
       long timeDiff = (time - Profiler.beginning)/1000;
       String targetClassName = obj.getClass().getName();
-      long tid = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);
+      // long tid = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);      
+      Long tid = ctoi.get(targetClassName);
+      if(tid == null){
+        // System.out.println(targetClassName);
+        return index;
+      }
 
       mb.putInt((int) (callsite & 0xFFFFFFFFL));
       mb.putInt((int) (tid & 0xFFFFFFFFL));

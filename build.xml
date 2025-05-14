@@ -21,6 +21,28 @@
     </jar>
   </target>
 
+  <path id="extractor.classpath">
+    <fileset dir="lib" includes="*.jar"/>
+  </path>
+
+  <target name="compile-extractor">
+    <mkdir dir="bin-extractor" />
+    <javac includeantruntime="false"
+      destdir="bin-extractor"
+      srcdir="src-extractor"
+      debug="false"
+      classpathref="extractor.classpath" />
+  </target>
+  
+  <target name="build-extractor" depends="compile-extractor">
+    <mkdir dir="build"/>
+    <jar destfile="build/extractor.jar" basedir="bin-extractor">
+      <manifest>
+        <attribute name="DiSL-Classes" value="${dislclass}"/>
+      </manifest>
+    </jar>
+  </target>
+
   <target name="compile-app">
     <mkdir dir="bin-app"/>
     <javac includeantruntime="false"
@@ -34,10 +56,11 @@
     <jar destfile="build/app.jar" basedir="bin-app"/>
   </target>
 
-  <target name="build" depends="build-profiler,build-app"/>
+  <target name="build" depends="build-profiler,build-app,build-extractor"/>
 
   <target name="clean">
     <delete dir="bin-profiler"/>
+    <delete dir="bin-extractor"/>
     <delete dir="build"/>
     <delete dir="dump"/>
     <delete dir="bin-app"/>
