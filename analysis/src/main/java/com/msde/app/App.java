@@ -279,6 +279,10 @@ public class App {
             long timediff = info.get(i + 2);
             String callsite = idToCallsite.get(csid);
             String className = idToClassName.get(cnid);
+            if(className == null){
+                System.out.println(String.format("WARNING: ---------------- cnid is: %d", cnid));
+                continue;
+            }
             callsiteToInfo.computeIfAbsent(callsite, k -> new HashMap<>()).computeIfAbsent(className, k -> new LongList()).add(timediff);
         }
         return callsiteToInfo;

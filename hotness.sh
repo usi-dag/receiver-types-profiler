@@ -44,7 +44,7 @@ for entry in "${benchmarks[@]}"; do
     mkdir experiment/$entry
   fi
 
-  $ORACLE/collect -d experiment/$entry $JAVA_HOME/bin/java -jar renaissance-gpl-0.16.0.jar $entry $FLAGS  
+  $ORACLE/collect -p 0.500 -h cycles -d experiment/$entry $JAVA_HOME/bin/java -jar renaissance-gpl-0.16.0.jar $entry $FLAGS  
   $ORACLE/er_print -metrics e.+cycles -viewmode user  -functions experiment/$entry/test.1.er/ > $entry.txt
   mv $entry.txt hotness/
 

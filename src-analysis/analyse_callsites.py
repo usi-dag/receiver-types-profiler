@@ -1,13 +1,14 @@
 import re
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
-from typing import List
+from typing import List, Dict
 from dataclasses import dataclass
 from collections import defaultdict
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+from functools import reduce
 
 
 def main():
@@ -23,6 +24,7 @@ def main():
     args: Namespace = parser.parse_args()
     input_folder = args.input_folder
     input_files: List[Path] = [f for f in input_folder.iterdir()]
+    # input_files = [f for f in input_files if f.name == "result_114.txt"]
     output_folder: Path = args.output_folder
     if not output_folder.is_dir():
         output_folder.mkdir()
@@ -32,7 +34,23 @@ def main():
     for f in result_files:
         callsites = parse_results(f)
         for callsite in callsites:
-            c, i = compute_statistics(callsite)
+            c, i = extract_compilation_decompilation(callsite)
+            oscillations, inversions_to_count = find_oscillations(i)
+            most_frequent_oscillation = max(
+                oscillations, key=oscillations.get, default=()
+            )
+            max_oscillation_frequency = oscillations.get(most_frequent_oscillation)
+            most_frequent_inversion = max(
+                inversions_to_count, key=inversions_to_count.get, default=()
+            )
+            max_inversion_frequency = inversions_to_count.get(most_frequent_inversion)
+            comp_id_to_count = number_of_windows_before_decompilation(callsite)
+            if len(comp_id_to_count) > 0:
+                average_inversions_before_decompilations = reduce(
+                    lambda a, b: a + b, comp_id_to_count.values(), 0
+                ) / len(comp_id_to_count)
+            else:
+                average_inversions_before_decompilations = 0
             statistics[callsite.callsite] = {
                 "changes": len(callsite.changes),
                 "inversions": len(callsite.inversions),
@@ -40,6 +58,11 @@ def main():
                 "decompilations": len(callsite.decompilations()),
                 "changes after compilation": len(c),
                 "inversions after compilation": len(i),
+                "most frequent oscillation": str(most_frequent_oscillation),
+                "most frequent oscillation value": max_oscillation_frequency,
+                "most frequent inversion": str(most_frequent_inversion),
+                "most frequent inversion value": max_inversion_frequency,
+                "average_inversions_before_decompilation": average_inversions_before_decompilations,
             }
     df = pd.DataFrame(statistics)
     df = df.T
@@ -52,11 +75,51 @@ def main():
         return m
 
     df["method_descriptor"] = df.apply(extract_method_name, axis=1)
-    normalized_df = normalize_by_hotness(df, hotness)
+    # normalized_df = normalize_by_hotness(df, hotness)
     normalized_csv = output_folder.joinpath(f"{args.name}_normalized.csv")
-    normalized_df.to_csv(normalized_csv)
-    save_statistics(df, output_folder, args.name)
+    df.to_csv(normalized_csv)
+    # save_statistics(df, output_folder, args.name)
     return
+
+
+def find_oscillations(i: List[str]):
+    inversions = []
+    for window, first, second in zip(*[iter(i)] * 3):
+        first_window_elements = [
+            (el.split(": ")[0].strip(), float(el.split(": ")[1].strip()))
+            for el in first.replace("First Window: ", "").split(", ")
+        ]
+        second_window_elements = [
+            (el.split(": ")[0].strip(), float(el.split(": ")[1].strip()))
+            for el in second.replace("Second Window: ", "").split(", ")
+        ]
+        window1_receivers = [
+            el[0]
+            for el in sorted(first_window_elements, key=lambda e: e[1], reverse=True)
+        ]
+        window2_receivers = [
+            el[0]
+            for el in sorted(second_window_elements, key=lambda e: e[1], reverse=True)
+        ]
+        inversions.append((" - ".join(window1_receivers), " -".join(window2_receivers)))
+        pass
+    inversion_to_count = defaultdict(int)
+    for i in inversions:
+        inversion_to_count[i] += 1
+    oscillations = defaultdict(int)
+    for i in range(len(inversions) - 1):
+        i1 = inversions[i]
+        i2 = inversions[i + 1]
+        oscillations[(i1, i2)] += 1
+    for i in range(1, len(inversions) - 1):
+        i1 = inversions[i]
+        i2 = inversions[i + 1]
+        oscillations[(i1, i2)] += 1
+    return oscillations, inversion_to_count
+
+
+def windows_count_to_decompilation():
+    pass
 
 
 def normalize_by_hotness(df: pd.DataFrame, hotness: Path) -> pd.DataFrame:
@@ -137,12 +200,6 @@ def save_statistics(df: pd.DataFrame, output_folder: Path, name: str):
         plt.close()
     df = df.sort_values("inversions after compilation", ascending=False)
     df.to_csv(output_folder.joinpath(f"{name}_statistics.csv"))
-    # c_75 = np.percentile(df["changes after compilation"], 75)
-    # i_75 = np.percentile(df["inversions after compilation"], 75)
-    # cc = df[df["changes after compilation"] > c_75]
-    # cc.to_csv(output_folder.joinpath(f"{name}_cc.csv"))
-    # ic = df[df["inversions after compilation"] > i_75]
-    # ic.to_csv(output_folder.joinpath(f"{name}_ic.csv"))
     return data
 
 
@@ -198,7 +255,7 @@ def parse_results(f: Path) -> List[CallSite]:
     return callsites
 
 
-def compute_statistics(callsite: CallSite):
+def extract_compilation_decompilation(callsite: CallSite):
     compile_id_to_changes = defaultdict(list)
     last_id = "interpreter"
     for el in callsite.changes:
@@ -231,6 +288,28 @@ def compute_statistics(callsite: CallSite):
     c = [e for k, v in compile_id_to_changes.items() for e in v if k != "interpreter"]
     i = [e for k, v in compile_id_to_inv.items() for e in v if k != "interpreter"]
     return c, i
+
+
+def number_of_windows_before_decompilation(callsite: CallSite) -> Dict[str, int]:
+    compile_id_to_inv_count = defaultdict(int)
+    compile_id_to_inv = defaultdict(list)
+    last_id = "interpreter"
+    for el in callsite.inversions:
+        if el.strip().startswith("Compilation") and "kind = c2" in el:
+            matches = re.findall(r"id = \d+", el)
+            id = matches[0].replace("id = ", "")
+            last_id = id
+        elif el.strip().startswith("Decompilation"):
+            matches = re.findall(r"compile_id = \d+", el)
+            id = matches[0].replace("compile_id = ", "")
+            if id in compile_id_to_inv:
+                # the inversions are always reported as triplets of lines.
+                compile_id_to_inv_count[id] = len(compile_id_to_inv[id]) / 3
+            if last_id == id:
+                last_id = "interpreter"
+        else:
+            compile_id_to_inv[last_id].append(el)
+    return compile_id_to_inv_count
 
 
 if __name__ == "__main__":
