@@ -30,9 +30,9 @@ class FilePartitioner {
 
     }
 
-    public static List<List<File>> partitionFileList(List<File> files, int numberOfPartitions) {
+    public static <T> List<List<T>> partitionFileList(List<T> files, int numberOfPartitions) {
         int partitionSize = files.size() / numberOfPartitions;
-        List<List<File>> partitions = new ArrayList<>();
+        List<List<T>> partitions = new ArrayList<>();
         for (int i = 0; i < numberOfPartitions; i++) {
             int beg = i * partitionSize;
             int end = Math.min(beg + partitionSize, files.size());
@@ -45,6 +45,8 @@ class FilePartitioner {
     }
 
     public static void partitionFiles(List<File> partials) {
+        /* Ensures that all the information regarding a callsite ends in the same 'callsite_xxx.txt' file,
+        */
         int numberOfPartitions = 4;
         List<List<File>> partitions = partitionFileList(partials, numberOfPartitions);
         List<Integer> threadFinished = Arrays.asList(0, 0, 0, 0);
@@ -133,42 +135,33 @@ class FilePartitioner {
                         fileIdToBytes.computeIfAbsent(m, k -> new ArrayList<>()).addAll(toAdd);
                         readBytes += 16;
                         if (readBytes >= 128 * 1024 * 1024) {
-                            for (Map.Entry<Long, List<Byte>> entry : fileIdToBytes.entrySet()) {
-                                locks.get(entry.getKey()).lock();
-                                File csFile = new File(intermediateFolder, String.format("callsite_%03d.txt", entry.getKey()));
-                                if (!csFile.exists()) {
-                                    csFile.createNewFile();
-                                }
-                                byte[] toWrite = new byte[entry.getValue().size()];
-                                int j = 0;
-                                for (Byte b : entry.getValue()) {
-                                    toWrite[j++] = b;
-                                }
-                                Files.write(csFile.toPath(), toWrite, StandardOpenOption.APPEND);
-                                locks.get(entry.getKey()).unlock();
-                            }
+                            dumpBytesToFile(intermediateFolder, fileIdToBytes);
                             fileIdToBytes.clear();
                         }
                     }
                 }
             }
-            for (Map.Entry<Long, List<Byte>> entry : fileIdToBytes.entrySet()) {
-                locks.get(entry.getKey()).lock();
-                File csFile = new File(intermediateFolder, String.format("callsite_%03d.txt", entry.getKey()));
-                if (!csFile.exists()) {
-                    csFile.createNewFile();
-                }
-                byte[] toWrite = new byte[entry.getValue().size()];
-                int i = 0;
-                for (Byte b : entry.getValue()) {
-                    toWrite[i++] = b;
-                }
-                Files.write(csFile.toPath(), toWrite, StandardOpenOption.APPEND);
-                locks.get(entry.getKey()).unlock();
-            }
+            dumpBytesToFile(intermediateFolder, fileIdToBytes);
             binaryFile.delete();
         } catch (IOException e) {
             System.err.println(e.getMessage());
+        }
+    }
+
+    private static void dumpBytesToFile(File intermediateFolder, Map<Long, List<Byte>> fileIdToBytes) throws IOException {
+        for (Map.Entry<Long, List<Byte>> entry : fileIdToBytes.entrySet()) {
+            locks.get(entry.getKey()).lock();
+            File csFile = new File(intermediateFolder, String.format("callsite_%03d.txt", entry.getKey()));
+            if (!csFile.exists()) {
+                csFile.createNewFile();
+            }
+            byte[] toWrite = new byte[entry.getValue().size()];
+            int j = 0;
+            for (Byte b : entry.getValue()) {
+                toWrite[j++] = b;
+            }
+            Files.write(csFile.toPath(), toWrite, StandardOpenOption.APPEND);
+            locks.get(entry.getKey()).unlock();
         }
     }
 

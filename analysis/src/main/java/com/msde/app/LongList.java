@@ -57,6 +57,7 @@ class LongList implements Iterable<Long>{
 
 
   public long min(){
+    assert l.size() > 0 || index > 0;
     long min = Long.MAX_VALUE;
     for(long[] arr: l){
       for(int i=0; i<arr.length; i++){
@@ -70,6 +71,7 @@ class LongList implements Iterable<Long>{
   }
 
   public long max(){
+    assert l.size() > 0 || index > 0;
     long max = Long.MIN_VALUE;
     for(long[] arr: l){
       for(int i=0; i<arr.length; i++){

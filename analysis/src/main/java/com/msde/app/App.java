@@ -37,7 +37,7 @@ public class App {
                     
                 }
                 default -> {
-                    System.out.println("usage: [--help] [--input-folder folder] [--delta time] [--compile-log file]"); 
+                    System.out.println("usage: [--help] [--input-folder folder] [--delta time (microseconds)] [--compile-log file]"); 
                     System.exit(1);
                 }
             }
@@ -52,7 +52,7 @@ public class App {
         InstrumentationFiles insFiles = getInstrumentationFiles(arguments.inputFolder);
         var idToCallsite = parseCsvMapping(insFiles.callsite);
         var idToClassName = parseCsvMapping(insFiles.className);
-        // startTime is in milliseconds
+        // NOTE: startTime is in milliseconds
         final long startTime = getStartTime(insFiles.startTime);
         // InstrumentationFiles insFiles = null;
         // Map<Long, String> idToCallsite = null;
@@ -66,7 +66,7 @@ public class App {
         File[] callsiteFiles = resultFolder.listFiles((el) -> el.getName().startsWith("callsite_"));
         assert callsiteFiles != null;
         // callsiteFiles = tryPartitioningLargeFiles(Arrays.asList(callsiteFiles));
-        System.out.println("After partitioning large files.");
+        // System.out.println("After partitioning large files.");
         // int i = 0;
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.length() > 800*1024*1024).toArray(File[]::new);
         // callsiteFiles = Arrays.stream(callsiteFiles).filter(f -> f.getName().equals("callsite_114.txt")).toArray(File[]::new);
@@ -92,7 +92,7 @@ public class App {
             Thread t = new Thread(() -> {
                 int current = 0;
                 for (File cf : cFiles) {
-                    // System.out.printf("\33[2K\rworking on file %s %s/%s size %s M" , cf, i+1, callsiteFiles.length, cf.length()/(1024*1024));
+                    // NOTE: double check this 'if'
                     if (threadAnalysis(resultFolder, idToCallsite, idToClassName, arguments, parser, startTime, cf, startTimeDiff))
                         continue;
                     current++;
@@ -143,7 +143,7 @@ public class App {
             resFile.delete();
         }
         // i++;
-        var callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
+        Map<String, Map<String, LongList>> callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
         for (var entry : callsiteInfo.entrySet()) {
             String callsite = entry.getKey();
             if (callsite == null) {
@@ -153,8 +153,8 @@ public class App {
             // System.out.println("Callsite: " + callsite);
             var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
             String methodDescriptor = extractMethodDescriptor(callsite);
-            // compilations are given in milliseconds from the start time while
-            // the instrumentation is kept in microseconds.
+            // NOTE: compilations are given in milliseconds from the start time while
+            // the instrumentation keeps the times in microseconds.
             List<Compilation> compilations = parser.findCompilationStamps(methodDescriptor);
             // NOTE: After this point compilations and decompilations will be in microseconds.
             compilations = compilations.stream().map(e -> e.withTime((e.time() - startTimeDiff) * 1000))
@@ -181,7 +181,7 @@ public class App {
         return false;
     }
 
-    private static String extractMethodDescriptor(String callsite){
+    static String extractMethodDescriptor(String callsite){
         String methodDescriptor = callsite.split(" ")[1];
         methodDescriptor = methodDescriptor.replace("(", " (");
         String[] split = methodDescriptor.split(" ");
@@ -272,6 +272,14 @@ public class App {
 
 
     public static Map<String, Map<String, LongList>> reconstructCallsiteInfo(LongList info, Map<Long, String> idToCallsite, Map<Long, String> idToClassName) {
+        /**
+        Return a map mapping from a callsite to a map which maps from class names to a list of invokation times for object of that class.
+        Ex: '0 java/lang/SomeStuff.someMethod()':
+                'ClassA': [0, 1, 2, 3]
+                'ClassB': [0, 1, 2, 3]
+                ...
+        NOTE: it might be better to keep the classids instead of getting the actual classnames to save ram.
+        **/
         Map<String, Map<String, LongList>> callsiteToInfo = new HashMap<>();
         for (int i = 0; i < info.size(); i += 3) {
             long csid = info.get(i);
@@ -435,13 +443,13 @@ public class App {
 
             if(w1Empty){
                 if(!lastValidWindow.isEmpty()){
-                    Map<String, Double> aaaaa = lastValidWindow.get();
-                    String[] keysSortedLV = Arrays.stream(keys).filter(k-> aaaaa.get(k)!=0).sorted((k1, k2) -> {
-                        int s = Double.compare(aaaaa.get(k2), aaaaa.get(k1));
+                    Map<String, Double> lv = lastValidWindow.get();
+                    String[] keysSortedLV = Arrays.stream(keys).filter(k-> lv.get(k)!=0).sorted((k1, k2) -> {
+                        int s = Double.compare(lv.get(k2), lv.get(k1));
                         return s;
                     }).toArray(String[]::new);
                     if(!compareRanking(keysSortedLV, keysSorted2)){
-                        inversions.add(new SpicyInversion(offset+i, offset+i + 1, aaaaa, w2));
+                        inversions.add(new SpicyInversion(offset+i, offset+i + 1, lv, w2));
                     }
                 }
                 lastValidWindow = Optional.of(w2);
@@ -460,7 +468,7 @@ public class App {
         return inversions;
     }
 
-    private static boolean compareRanking(String[] arr1, String[] arr2) {
+    static boolean compareRanking(String[] arr1, String[] arr2) {
         String[] a1 = arr1.length < arr2.length ? arr1 : arr2;
         String[] a2 = arr1.length < arr2.length ? arr2 : arr1;
         for(int i = 0; i < a1.length; i++){
