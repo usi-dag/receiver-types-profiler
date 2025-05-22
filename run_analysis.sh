@@ -90,7 +90,7 @@ for entry in "${benchmarks[@]}"; do
     # This is some of the jankiest fix ever made and it brings shame upon my family.
     sleep 10
 
-    $JAVA_HOME/bin/java -Xmx$ANALYSISHEAP -classpath analysis/target/classes/ com.msde.app.App -i output/ -c $LOG_FILE -d 1000 
+    $JAVA_HOME/bin/java -Xmx$ANALYSISHEAP -classpath src-digest/target/classes/ com.msde.app.App -i output/ -c $LOG_FILE -d 1000 
 
     if [ $? -ne 0 ]; then
       echo Something went wrong analyzing $SUITE $entry iteration $i

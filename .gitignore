@@ -8,9 +8,9 @@ output
 result
 harness*
 launcher*
-analysis/target
-analysis/.classpath
-analysis/.project
+src-digest/target
+src-digest/.classpath
+src-digest/.project
 archives/
 dacapo-23.11-MR2-chopin.jar
 dacapo-23.11-MR2-chopin/
@@ -19,3 +19,6 @@ renaissance-gpl-0.16.0.jar
 plots/
 *.class
 src-utilities/*.txt
+src-digest/bin/
+compiler_log.xml
+hotness/

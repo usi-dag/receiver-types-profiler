@@ -32,8 +32,8 @@ The folder 'src-profiler' contains the source code of a simply Java application 
 ## Utilities
 The folder 'src-utilities' contains script that can be used to make it easir to understand the output of the profiling and analysis.
 
-## Analysis Java
-The folder 'analysis' contains the code which is responsible to parse and digest the output of the profiler.
+## Digest Java
+The folder 'src-digest' contains the code which is responsible to parse and digest the output of the profiler.
 Beside some crude data digestion some basic analysis are performed as well.
 
 ## Analysis Python

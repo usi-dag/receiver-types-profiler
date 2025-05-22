@@ -47,7 +47,7 @@ public class FilePartitionerTest{
 
   @Test
   public void testWriteIntermediateFiles(){
-    File cf = new File("/home/ubuntu/receiver-types-profiler/analysis/partial_30.txt");
+    File cf = new File("/home/ubuntu/receiver-types-profiler/src-digest/partial_30.txt");
     File pf = new File("result/p.txt");
     try{
       Files.copy(cf.toPath(), pf.toPath(), StandardCopyOption.REPLACE_EXISTING);
@@ -57,7 +57,7 @@ public class FilePartitionerTest{
     List<File> files = new ArrayList<>();
     files.add(pf);
     FilePartitioner.partitionFiles(files);
-    File res = new File("/home/ubuntu/receiver-types-profiler/analysis/result");
+    File res = new File("/home/ubuntu/receiver-types-profiler/src-digest/result");
     assertTrue(res.isDirectory());
     assertEquals(61, res.listFiles().length);
   }
