@@ -8,13 +8,6 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 public class PrintInformationTest {
-  @Test
-  public void testRatioChange() {
-    RatioChange rc = new RatioChange(0, "SomeClass", 0, 1, 1);
-    String[] info = rc.formatInformation();
-    assertEquals(1, info.length);
-    assertEquals("SomeClass - window before: 0 - window after: 1 - diff: 1.0 - before: 0.0 - after: 1.0\n", info[0]);
-  }
 
   @Test
   public void testCompilation() {
@@ -45,24 +38,17 @@ public class PrintInformationTest {
   }
 
   @Test
-  public void testInversion() {
-    Inversion i = new Inversion(0, 1, "ClassA", "ClassB", 0.0, 1.0, 1.0, 0.0);
-    String[] info = i.formatInformation();
-    assertEquals(3, info.length);
-    assertEquals("ClassA - ClassB - windows: 0 - 1\n", info[0]);
-    assertEquals("First Window: ClassA - ClassB, 0.0 - 1.0\n", info[1]);
-    assertEquals("Second Window: ClassA - ClassB, 1.0 - 0.0\n", info[2]);
-  }
-
-  @Test
   public void testSpicyInversion() {
-    Map<String, Double> w1 = new HashMap<>();
-    w1.put("ClassA", 0.0);
-    w1.put("ClassB", 1.0);
-    Map<String, Double> w2 = new HashMap<>();
-    w2.put("ClassA", 1.0);
-    w2.put("ClassB", 0.0);
-    SpicyInversion i = new SpicyInversion(0, 1, w1, w2);
+    Map<Long, String> idToName = new HashMap<>();
+    idToName.put(0L, "ClassA");
+    idToName.put(1L, "ClassB");
+    Map<Long, Double> w1 = new HashMap<>();
+    w1.put(0L, 0.0);
+    w1.put(1L, 1.0);
+    Map<Long, Double> w2 = new HashMap<>();
+    w2.put(0L, 1.0);
+    w2.put(1L, 0.0);
+    Inversion i = new Inversion(0, 1, w1, w2, idToName);
     String[] info = i.formatInformation();
     assertEquals(3, info.length);
     assertEquals("windows: 0 - 1\n", info[0]);
@@ -72,13 +58,16 @@ public class PrintInformationTest {
 
   @Test
   public void testSpicyRatioChange() {
-    Map<String, Double> w1 = new HashMap<>();
-    w1.put("ClassA", 0.0);
-    w1.put("ClassB", 1.0);
-    Map<String, Double> w2 = new HashMap<>();
-    w2.put("ClassA", 1.0);
-    w2.put("ClassB", 0.0);
-    SpicyRatioChange c = new SpicyRatioChange(0, w1, w2);
+    Map<Long, String> idToName = new HashMap<>();
+    idToName.put(0L, "ClassA");
+    idToName.put(1L, "ClassB");
+    Map<Long, Double> w1 = new HashMap<>();
+    w1.put(0L, 0.0);
+    w1.put(1L, 1.0);
+    Map<Long, Double> w2 = new HashMap<>();
+    w2.put(0L, 1.0);
+    w2.put(1L, 0.0);
+    RatioChange c = new RatioChange(0, w1, w2, idToName);
     String[] info = c.formatInformation();
     assertEquals(3, info.length);
     assertEquals("window before: 0 - window after: 1\n", info[0]);

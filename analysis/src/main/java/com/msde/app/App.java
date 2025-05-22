@@ -143,7 +143,7 @@ public class App {
             resFile.delete();
         }
         // i++;
-        Map<String, Map<String, LongList>> callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
+        Map<String, Map<Long, LongList>> callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
         for (var entry : callsiteInfo.entrySet()) {
             String callsite = entry.getKey();
             if (callsite == null) {
@@ -164,12 +164,13 @@ public class App {
             decompilations = decompilations.stream().map(e -> e.withTime((e.time() - startTimeDiff) * 1000))
                     .sorted(Comparator.comparing(Decompilation::time)).toList();
             // List<Map<String, Double>> percentageWindows = null;
-            var changes = findChanges(percentageWindows, arguments.delta, startTime, compilations, decompilations);
-            var inversions = findInversions(percentageWindows, arguments.delta, startTime, compilations, decompilations);
+            var changes = findChanges(percentageWindows, arguments.delta, startTime, compilations, decompilations, idToClassName);
+            var inversions = findInversions(percentageWindows, arguments.delta, startTime, compilations, decompilations, idToClassName);
+            var windowsInformation = getRawWindowInformation(percentageWindows, arguments.delta, startTime, compilations, decompilations, idToClassName);
             if (changes.isEmpty() && inversions.isEmpty()) {
                 continue;
             }
-            StringBuilder res = formatAnalysisResult(callsite, changes, inversions, percentageWindows.start, arguments.delta);
+            StringBuilder res = formatAnalysisResult(callsite, changes, inversions, windowsInformation, percentageWindows.start, arguments.delta);
             // System.out.println(res);
             try {
                 resFile.createNewFile();
@@ -271,7 +272,7 @@ public class App {
     }
 
 
-    public static Map<String, Map<String, LongList>> reconstructCallsiteInfo(LongList info, Map<Long, String> idToCallsite, Map<Long, String> idToClassName) {
+    public static Map<String, Map<Long, LongList>> reconstructCallsiteInfo(LongList info, Map<Long, String> idToCallsite, Map<Long, String> idToClassName) {
         /**
         Return a map mapping from a callsite to a map which maps from class names to a list of invokation times for object of that class.
         Ex: '0 java/lang/SomeStuff.someMethod()':
@@ -280,7 +281,7 @@ public class App {
                 ...
         NOTE: it might be better to keep the classids instead of getting the actual classnames to save ram.
         **/
-        Map<String, Map<String, LongList>> callsiteToInfo = new HashMap<>();
+        Map<String, Map<Long, LongList>> callsiteToInfo = new HashMap<>();
         for (int i = 0; i < info.size(); i += 3) {
             long csid = info.get(i);
             long cnid = info.get(i + 1);
@@ -291,28 +292,28 @@ public class App {
                 System.out.println(String.format("WARNING: ---------------- cnid is: %d", cnid));
                 continue;
             }
-            callsiteToInfo.computeIfAbsent(callsite, k -> new HashMap<>()).computeIfAbsent(className, k -> new LongList()).add(timediff);
+            callsiteToInfo.computeIfAbsent(callsite, k -> new HashMap<>()).computeIfAbsent(cnid, k -> new LongList()).add(timediff);
         }
         return callsiteToInfo;
 
     }
 
-    record PartitionedWindows(List<Map<String, Double>> windows, long start, long end){}
+    record PartitionedWindows(List<Map<Long, Double>> windows, long start, long end){}
 
     // record PartitionedWindow(Map<String, Double> value, int windowIndex){}
 
-    private static PartitionedWindows analyseCallsite(Map<String, LongList> info, final long timeFrame) {
+    private static PartitionedWindows analyseCallsite(Map<Long, LongList> info, final long timeFrame) {
         // returns a list of windows which shows the percentages of the calls on each receiver type in that window
         // WindowStart and end are in microseconds.
         long windowStart = info.values().stream().flatMapToLong(LongList::stream).min().orElse(0);
         long end = info.values().stream().flatMapToLong(LongList::stream).max().orElse(Long.MAX_VALUE);
         long nIteration = ((end-windowStart)/timeFrame) + 1;
         // List of receiver type to list of time deltas of method invocation.
-        List<Map<String, List<Long>>> windows = new ArrayList<>();
+        List<Map<Long, List<Long>>> windows = new ArrayList<>();
         for(int j = 0; j<nIteration; j++){
             windows.add(new HashMap<>());            
         }
-        for (Map.Entry<String, LongList> el : info.entrySet()) {
+        for (Map.Entry<Long, LongList> el : info.entrySet()) {
             List<List<Long>> partitionedInfo = new ArrayList<>();
             for(int j=0; j<nIteration; j++){
                 partitionedInfo.add(new ArrayList<>());
@@ -333,12 +334,45 @@ public class App {
         }).toList();
         return new PartitionedWindows(partitionedWindows, windowStart, end);
     }
-    
-    private static List<PrintInformation> findChanges(PartitionedWindows windows, final long window, final long startTime,
-         List<Compilation> compilationTasks, List<Decompilation> decompilations) {
+
+    private static List<PrintInformation> getRawWindowInformation(PartitionedWindows windows, final long window, final long startTime,
+         List<Compilation> compilationTasks, List<Decompilation> decompilations, Map<Long, String> idToName) {
         // Compilation and decompilations are given as offset in microseconds from the startTime
         
-        List<Map<String, Double>> pw = windows.windows;
+        List<Map<Long, Double>> pw = windows.windows;
+        List<PrintInformation> windowInformation = new ArrayList<>();
+        int compilationIter = 0;
+        int decompilationIter = 0;
+        final int indexOffset = (int) (windows.start/window);
+        // the window start offset is in microseconds, the start time is in millisecond
+        final long firstWindowStartTime = startTime + (windows.start/1000);
+        for (int i = 0; i < pw.size(); i++) {
+            var w = pw.get(i);
+
+            boolean windowIsEmpty = w.values().stream().mapToDouble(e->e).sum() == 0.0;
+            if (compilationIter < compilationTasks.size() && 
+                    firstWindowStartTime + i * window / 1000 > startTime + compilationTasks.get(compilationIter).time() / 1000) {
+                var ct = compilationTasks.get(compilationIter++);
+                windowInformation.add(ct);
+            }
+            if (decompilationIter < decompilations.size()
+                    && firstWindowStartTime + i * window / 1000 > startTime + decompilations.get(decompilationIter).time() / 1000) {
+                var dt = decompilations.get(decompilationIter++);
+                windowInformation.add(dt);
+            }
+            if(windowIsEmpty){
+                continue;
+            }
+            windowInformation.add(new WindowInformation(indexOffset+i, w, idToName));
+        }
+        return windowInformation;
+    }
+    
+    private static List<PrintInformation> findChanges(PartitionedWindows windows, final long window, final long startTime,
+         List<Compilation> compilationTasks, List<Decompilation> decompilations, Map<Long, String> idToName) {
+        // Compilation and decompilations are given as offset in microseconds from the startTime
+        
+        List<Map<Long, Double>> pw = windows.windows;
         final double threshold = 0.1;
         List<PrintInformation> changes = new ArrayList<>();
         int compilationIter = 0;
@@ -349,7 +383,7 @@ public class App {
         // [A] [] [A] [] [A] [] [B]
         // [][][A] [] [A] [] [A] [] [B]
         // [A] [] [] [] [A] [] [B]
-        Optional<Map<String, Double>> lastValidWindow = Optional.empty();
+        Optional<Map<Long, Double>> lastValidWindow = Optional.empty();
         for (int i = 0; i < pw.size() - 1; i++) {
             var w1 = pw.get(i);
             var w2 = pw.get(i + 1);
@@ -376,7 +410,7 @@ public class App {
                             .map((el) -> Math.abs(el.getValue() - w2.get(el.getKey())))
                             .filter(el -> el > threshold).findAny();
                     if(d.isPresent()){
-                        changes.add(new SpicyRatioChange(indexOffset+i, lastValidWindow.get(), w2));
+                        changes.add(new RatioChange(indexOffset+i, lastValidWindow.get(), w2, idToName));
                     }
                 }
                 lastValidWindow = Optional.of(w2);
@@ -390,7 +424,7 @@ public class App {
                     .map((el) -> Math.abs(el.getValue() - w2.get(el.getKey())))
                     .filter(el -> el > threshold).findAny();
             if(d.isPresent()){
-                changes.add(new SpicyRatioChange(indexOffset+i, w1, w2));
+                changes.add(new RatioChange(indexOffset+i, w1, w2, idToName));
             }
             lastValidWindow = Optional.of(w1);
             // }
@@ -399,15 +433,15 @@ public class App {
     }
 
     private static List<PrintInformation> findInversions(PartitionedWindows windows, final long window, final long startTime,
-         List<Compilation> compilationTasks, List<Decompilation> decompilations) {
-        List<Map<String, Double>> pw = windows.windows;
+         List<Compilation> compilationTasks, List<Decompilation> decompilations, Map<Long, String> idToName) {
+        List<Map<Long, Double>> pw = windows.windows;
         List<PrintInformation> inversions = new ArrayList<>();
         final int offset = (int) (windows.start/window);
         int compIter = 0;
         int decIter = 0;
         // the window offset start is in microsecond, the startTime is in milliseconds
         final long firstWindowStartTime = startTime + (windows.start/1000);
-        Optional<Map<String, Double>> lastValidWindow = Optional.empty();
+        Optional<Map<Long, Double>> lastValidWindow = Optional.empty();
         for (int i = 0; i < pw.size() - 1; i++) {
             var w1 = pw.get(i);
             var w2 = pw.get(i + 1);
@@ -416,16 +450,16 @@ public class App {
             // [A] [] [] [] [A] [] [B]
             boolean w1Empty = w1.values().stream().mapToDouble(e->e).sum() == 0.0;
             boolean w2Empty = w2.values().stream().mapToDouble(e->e).sum() == 0.0;
-            String[] keys = w1.keySet().toArray(String[]::new);
-            String[] keysSorted1 = Arrays.stream(keys).filter(k->w1.get(k)!=0).sorted((k1, k2) -> {
+            Long[] keys = w1.keySet().toArray(Long[]::new);
+            Long[] keysSorted1 = Arrays.stream(keys).filter(k->w1.get(k)!=0).sorted((k1, k2) -> {
                 int s = Double.compare(w1.get(k2), w1.get(k1));
                 return s;
-            }).toArray(String[]::new);
+            }).toArray(Long[]::new);
 
-            String[] keysSorted2 = Arrays.stream(keys).filter(k-> w2.get(k)!=0).sorted((k1, k2) -> {
+            Long[] keysSorted2 = Arrays.stream(keys).filter(k-> w2.get(k)!=0).sorted((k1, k2) -> {
                 int s = Double.compare(w2.get(k2), w2.get(k1));
                 return s;
-            }).toArray(String[]::new);
+            }).toArray(Long[]::new);
 
             if (compIter < compilationTasks.size() &&
                     firstWindowStartTime + i * window / 1000 > startTime + compilationTasks.get(compIter).time()/1000) {
@@ -443,13 +477,13 @@ public class App {
 
             if(w1Empty){
                 if(!lastValidWindow.isEmpty()){
-                    Map<String, Double> lv = lastValidWindow.get();
-                    String[] keysSortedLV = Arrays.stream(keys).filter(k-> lv.get(k)!=0).sorted((k1, k2) -> {
+                    Map<Long, Double> lv = lastValidWindow.get();
+                    Long[] keysSortedLV = Arrays.stream(keys).filter(k-> lv.get(k)!=0).sorted((k1, k2) -> {
                         int s = Double.compare(lv.get(k2), lv.get(k1));
                         return s;
-                    }).toArray(String[]::new);
+                    }).toArray(Long[]::new);
                     if(!compareRanking(keysSortedLV, keysSorted2)){
-                        inversions.add(new SpicyInversion(offset+i, offset+i + 1, lv, w2));
+                        inversions.add(new Inversion(offset+i, offset+i + 1, lv, w2, idToName));
                     }
                 }
                 lastValidWindow = Optional.of(w2);
@@ -460,7 +494,7 @@ public class App {
                 continue;
             }
             if(!compareRanking(keysSorted1, keysSorted2)){
-                inversions.add(new SpicyInversion(offset+i, offset+i + 1, w1, w2));
+                inversions.add(new Inversion(offset+i, offset+i + 1, w1, w2, idToName));
             }
             lastValidWindow = Optional.of(w1);
             
@@ -468,9 +502,9 @@ public class App {
         return inversions;
     }
 
-    static boolean compareRanking(String[] arr1, String[] arr2) {
-        String[] a1 = arr1.length < arr2.length ? arr1 : arr2;
-        String[] a2 = arr1.length < arr2.length ? arr2 : arr1;
+    static <T> boolean compareRanking(T[] arr1, T[] arr2) {
+        T[] a1 = arr1.length < arr2.length ? arr1 : arr2;
+        T[] a2 = arr1.length < arr2.length ? arr2 : arr1;
         for(int i = 0; i < a1.length; i++){
             if(!a1[i].equals(a2[i])){
                 return false;
@@ -479,7 +513,7 @@ public class App {
         return true;
     }
 
-    private static StringBuilder formatAnalysisResult(String cs, List<PrintInformation> changes, List<PrintInformation> inversions, long start, long delta) {
+    private static StringBuilder formatAnalysisResult(String cs, List<PrintInformation> changes, List<PrintInformation> inversions, List<PrintInformation> windowsInformation, long start, long delta) {
         StringBuilder result = new StringBuilder(String.format("Callsite: %s\n", cs));
         String indent = "    ";
         if (!changes.isEmpty()) {
@@ -496,6 +530,13 @@ public class App {
         result.append(String.format("%sInversions[start time = %s, window size = %s]:\n", indent, start, delta));
         for (PrintInformation inversion : inversions) {
             for(String s: inversion.formatInformation()){
+               result.append(String.format("%s%s", indent.repeat(2), s));
+            }
+        }
+
+        result.append(String.format("%sRawWindowInformation[start time = %s, window size = %s]:\n", indent, start, delta));
+        for (PrintInformation wi: windowsInformation) {
+            for(String s: wi.formatInformation()){
                result.append(String.format("%s%s", indent.repeat(2), s));
             }
         }
