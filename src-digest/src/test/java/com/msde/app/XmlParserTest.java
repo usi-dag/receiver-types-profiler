@@ -10,14 +10,14 @@ import org.junit.jupiter.api.Test;
 public class XmlParserTest {
   @Test
   public void testConstructor() {
-    File cf = new File("/home/ubuntu/receiver-types-profiler/src-digest/compiler_log.xml");
+    File cf = new File("compiler_log.xml");
     XmlParser xp = new XmlParser(cf);
     assertEquals(xp.getVmStartTime(), 1747217577473L);
   }
 
   @Test
   public void testCompilations() {
-    File cf = new File("/home/ubuntu/receiver-types-profiler/src-digest/compiler_log.xml");
+    File cf = new File("compiler_log.xml");
     XmlParser xp = new XmlParser(cf);
     List<Compilation> compilations = xp.findCompilationStamps("Main getEl (I)LM1;");
     assertEquals(4, compilations.size());
@@ -29,7 +29,7 @@ public class XmlParserTest {
 
   @Test
   public void testDeCompilations() {
-    File cf = new File("/home/ubuntu/receiver-types-profiler/src-digest/compiler_log.xml");
+    File cf = new File("compiler_log.xml");
     XmlParser xp = new XmlParser(cf);
     List<Decompilation> decompilations = xp.findDecompilationStamps("Main getEl (I)LM1;");
     assertEquals(3, decompilations.size());
