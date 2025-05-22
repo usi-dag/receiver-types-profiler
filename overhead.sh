@@ -43,8 +43,11 @@ for entry in "${benchmarks[@]}"; do
   echo -e "${GREEN}WORKING ON BENCHMARK: ${entry}${NC}"
   TIME_FILE=overhead_times/default_"$1"_"$entry".txt
   for i in $(seq $2); do
+    LOG_FILE=overhead_times/compiler_log_default_"$1"_"$entry"_"$i".xml
     echo -e "${GREEN}ITERATION ${i}/${2} ${NC}"
-    $TIME -o $TIME_FILE -a $JAVA_HOME/bin/java -jar $BENCH $entry $FLAGS
+    $TIME -o $TIME_FILE -a $JAVA_HOME/bin/java \
+    -XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation -XX:LogFile=$LOG_FILE \
+    -jar $BENCH $entry $FLAGS
   done
 done
 
@@ -74,7 +77,7 @@ for entry in "${benchmarks[@]}"; do
 
     sleep 2
 
-    LOG_FILE=result/compiler_log_"$1"_"$entry"_"$i".xml
+    LOG_FILE=overhead_times/compiler_log_instrumented_"$1"_"$entry"_"$i".xml
 
     $TIME -o $TIME_FILE -a \
     $JAVA_HOME/bin/java -agentpath:$AGENT_PATH --patch-module java.base=$DISL_BYPASS \
@@ -86,7 +89,5 @@ for entry in "${benchmarks[@]}"; do
     -jar $BENCH $entry $FLAGS
 
     rm output/*
-    rm $LOG_FILE
-    # rm result/*
   done
 done
