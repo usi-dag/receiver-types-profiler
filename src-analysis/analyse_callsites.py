@@ -24,7 +24,7 @@ def main():
     args: Namespace = parser.parse_args()
     input_folder = args.input_folder
     input_files: List[Path] = [f for f in input_folder.iterdir()]
-    # input_files = [f for f in input_files if f.name == "result_114.txt"]
+    input_files = [f for f in input_files if f.name == "result_114.txt"]
     output_folder: Path = args.output_folder
     if not output_folder.is_dir():
         output_folder.mkdir()
@@ -51,6 +51,8 @@ def main():
                 ) / len(comp_id_to_count)
             else:
                 average_inversions_before_decompilations = 0
+            raw = callsite.raw
+            compile_id_to_receiver_count = find_receiver_reduction(raw)
             statistics[callsite.callsite] = {
                 "changes": len(callsite.changes),
                 "inversions": len(callsite.inversions),
@@ -64,6 +66,18 @@ def main():
                 "most frequent inversion value": max_inversion_frequency,
                 "average_inversions_before_decompilation": average_inversions_before_decompilations,
             }
+            receiver_count_data = {}
+            for k, v in compile_id_to_receiver_count.items():
+                before, after = v
+                receiver_count_data[f"{k} - before"] = len(before)
+                receiver_count_data[f"{k} - after"] = len(after)
+            df = pd.DataFrame(receiver_count_data, index=[0])
+            out = output_folder.joinpath(args.name)
+            out.mkdir(exist_ok=True)
+            callsite_output_csv = out.joinpath(
+                f"{callsite.callsite.replace('/', '_').replace(' ', '_')}.csv"
+            )
+            df.to_csv(callsite_output_csv)
     df = pd.DataFrame(statistics)
     df = df.T
     df = df.reset_index()
@@ -75,11 +89,55 @@ def main():
         return m
 
     df["method_descriptor"] = df.apply(extract_method_name, axis=1)
-    # normalized_df = normalize_by_hotness(df, hotness)
+    normalized_df = normalize_by_hotness(df, hotness)
     normalized_csv = output_folder.joinpath(f"{args.name}_normalized.csv")
-    df.to_csv(normalized_csv)
-    # save_statistics(df, output_folder, args.name)
+    normalized_df.to_csv(normalized_csv)
+    save_statistics(df, output_folder, args.name)
     return
+
+
+def find_receiver_reduction(raw: List[str]):
+    compile_id_to_receiver_count = dict()
+    last_id = "interpreter"
+    before = set()
+    current_receivers = set()
+    raw = [el for el in raw if not el.strip().startswith("window")]
+
+    for el in raw:
+        if el.strip().startswith("Compilation"):
+            compile_id_to_receiver_count[last_id] = (before, current_receivers)
+            before = current_receivers
+            current_receivers = set()
+            matches = re.findall(r"id = \d+", el)
+            id = matches[0].replace("id = ", "")
+            last_id = id
+        elif el.strip().startswith("Decompilation"):
+            matches = re.findall(r"compile_id = \d+", el)
+            id = matches[0].replace("compile_id = ", "")
+            if id in compile_id_to_receiver_count:
+                continue
+            if last_id not in compile_id_to_receiver_count:
+                compile_id_to_receiver_count[last_id] = (before, current_receivers)
+            # before = set()
+
+            if last_id == id:
+                last_id = "interpreter"
+                before = set()
+                current_receivers = set()
+        else:
+            # compile_id_to_receiver_count[last_id].append(el)
+            receivers = {
+                e.split(": ")[0].strip()
+                for e in el.split(", ")
+                if float(e.split(": ")[1]) != 0
+            }
+            current_receivers.update(receivers)
+            pass
+
+    if last_id not in compile_id_to_receiver_count:
+        compile_id_to_receiver_count[last_id] = (before, current_receivers)
+
+    return compile_id_to_receiver_count
 
 
 def find_oscillations(i: List[str]):
@@ -214,6 +272,7 @@ class CallSite:
     callsite: str
     changes: List[str]
     inversions: List[str]
+    raw: List[str]
 
     def compilations(self) -> List[str]:
         return [e for e in self.changes if e.strip().startswith("Compilation")]
@@ -227,31 +286,39 @@ def parse_results(f: Path) -> List[CallSite]:
     current_callsite = ""
     changes = []
     inversions = []
-    processing_changes = False
+    raw = []
+    processing_type = "changes"
+
     callsites = []
     for line in handle:
         if line.startswith("Callsite"):
             callsite = line.split(":")[1].strip()
             if current_callsite:
                 # save callsite information
-                callsites.append(CallSite(current_callsite, changes, inversions))
-                processing_changes = False
+                callsites.append(CallSite(current_callsite, changes, inversions, raw))
+                processing_type = "changes"
                 changes = []
                 inversions = []
+                raw = []
                 pass
             current_callsite = callsite
         elif line.strip().startswith("Changes"):
-            processing_changes = True
+            processing_type = "changes"
         elif line.strip().startswith("Inversions"):
-            processing_changes = False
+            processing_type = "inversions"
+        elif line.strip().startswith("RawWindowInformation"):
+            processing_type = "raw"
         else:
-            if processing_changes:
-                changes.append(line)
-            else:
-                inversions.append(line)
+            match processing_type:
+                case "changes":
+                    changes.append(line)
+                case "inversions":
+                    inversions.append(line)
+                case "raw":
+                    raw.append(line)
 
     if current_callsite:
-        callsites.append(CallSite(current_callsite, changes, inversions))
+        callsites.append(CallSite(current_callsite, changes, inversions, raw))
     return callsites
 
 
