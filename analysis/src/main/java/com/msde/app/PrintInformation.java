@@ -1,19 +1,10 @@
 package com.msde.app;
 
+import java.util.Map;
+import java.util.stream.Collectors;
+
 public interface PrintInformation {
-  public String[] formatInformation();
-}
-
-record RatioChange(int window, String className, double before,
-    double after, double diff) implements PrintInformation {
-
-  @Override
-  public String[] formatInformation() {
-    String[] result = new String[1];
-    result[0] = String.format("%s - window before: %s - window after: %s - diff: %s - before: %s - after: %s\n",
-        this.className, this.window, this.window + 1, this.diff, this.before, this.after);
-    return result;
-  }
+  String[] formatInformation();
 }
 
 record Compilation(long time, String id, String kind) implements PrintInformation {
@@ -48,18 +39,52 @@ record Decompilation(long time, String id, String kind, String reason, String ac
   }
 }
 
-record Inversion(int window1, int window2, String className1, String className2, Double valKey1Window1,
-    Double valKey2Window1, Double valKey1Window2, Double valKey2Window2) implements PrintInformation {
+record Inversion(int window1, int window2, Map<Long, Double> w1, Map<Long, Double> w2, Map<Long, String> idToName) implements PrintInformation {
   @Override
   public String[] formatInformation() {
     String[] result = new String[3];
 
-    result[0] = String.format("%s - %s - windows: %s - %s\n", this.className1, this.className2, this.window1,
-        this.window2);
-    result[1] = String.format("First Window: %s - %s, %s - %s\n", this.className1, this.className2, this.valKey1Window1,
-        this.valKey2Window1);
-    result[2] = String.format("Second Window: %s - %s, %s - %s\n", this.className1, this.className2,
-        this.valKey1Window2, this.valKey2Window2);
+    result[0] = String.format("windows: %s - %s\n", this.window1, this.window2);
+    String firstWindow = w1.entrySet().stream()
+            .map(e -> String.format("%s: %f", idToName.get(e.getKey()), e.getValue()))
+            .collect(Collectors.joining(", "));
+    String secondWindow = w2.entrySet().stream()
+            .map(e -> String.format("%s: %f", idToName.get(e.getKey()), e.getValue()))
+            .collect(Collectors.joining(", "));
+    result[1] = String.format("    First Window: %s\n", firstWindow);
+    result[2] = String.format("    Second Window: %s\n", secondWindow);
+    return result;
+  }
+}
+
+record RatioChange(int window, Map<Long, Double> w1, Map<Long, Double> w2, Map<Long, String> idToName) implements PrintInformation {
+
+  @Override
+  public String[] formatInformation() {
+    String[] result = new String[3];
+    String firstWindow = w1.entrySet().stream()
+            .map(e -> String.format("%s: %f", idToName.get(e.getKey()), e.getValue()))
+            .collect(Collectors.joining(", "));
+    String secondWindow = w2.entrySet().stream()
+            .map(e -> String.format("%s: %f", idToName.get(e.getKey()), e.getValue()))
+            .collect(Collectors.joining(", "));
+    result[0] = String.format("window before: %s - window after: %s\n", this.window, this.window + 1);
+    result[1] = String.format("    First Window: %s\n", firstWindow);
+    result[2] = String.format("    Second Window: %s\n", secondWindow);
+    return result;
+  }
+}
+
+record WindowInformation(int window, Map<Long, Double> classNameToRatio, Map<Long, String> idToName) implements PrintInformation {
+
+  @Override
+  public String[] formatInformation() {
+    String[] result = new String[2];
+    String firstWindow = classNameToRatio.entrySet().stream()
+      .map(e -> String.format("%s: %f", idToName.get(e.getKey()), e.getValue()))
+      .collect(Collectors.joining(", "));
+    result[0] = String.format("window information for window: %s\n", this.window);
+    result[1] = String.format("    %s\n", firstWindow);
     return result;
   }
 }

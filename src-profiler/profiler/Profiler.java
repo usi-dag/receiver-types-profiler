@@ -61,16 +61,18 @@ public class Profiler{
     }
 
     public static int putInfo(MappedByteBuffer mb, int index, long callsite, Object obj){
-      if(callsite == -1){
-        return index;
-      }
+      // if(callsite == -1){
+      //   return index;
+      // }
       long time = System.nanoTime();
       long timeDiff = (time - Profiler.beginning)/1000;
       String targetClassName = obj.getClass().getName();
       long tid = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);
 
-      mb.putInt((int) (callsite & 0xFFFFFFFFL));
-      mb.putInt((int) (tid & 0xFFFFFFFFL));
+      long val = ((callsite) << 32) | (tid & 0xffffffffL);
+      mb.putLong(val);
+      // mb.putInt((int) (callsite & 0xFFFFFFFFL));
+      // mb.putInt((int) (tid & 0xFFFFFFFFL));
       mb.putLong(timeDiff);
       // long a = 1l;
       // long b = 2l;

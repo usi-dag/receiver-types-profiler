@@ -1,13 +1,14 @@
 import re
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
-from typing import List
+from typing import List, Dict
 from dataclasses import dataclass
 from collections import defaultdict
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
+from functools import reduce
 
 
 def main():
@@ -23,6 +24,7 @@ def main():
     args: Namespace = parser.parse_args()
     input_folder = args.input_folder
     input_files: List[Path] = [f for f in input_folder.iterdir()]
+    input_files = [f for f in input_files if f.name == "result_114.txt"]
     output_folder: Path = args.output_folder
     if not output_folder.is_dir():
         output_folder.mkdir()
@@ -32,7 +34,25 @@ def main():
     for f in result_files:
         callsites = parse_results(f)
         for callsite in callsites:
-            c, i = compute_statistics(callsite)
+            c, i = extract_compilation_decompilation(callsite)
+            oscillations, inversions_to_count = find_oscillations(i)
+            most_frequent_oscillation = max(
+                oscillations, key=oscillations.get, default=()
+            )
+            max_oscillation_frequency = oscillations.get(most_frequent_oscillation)
+            most_frequent_inversion = max(
+                inversions_to_count, key=inversions_to_count.get, default=()
+            )
+            max_inversion_frequency = inversions_to_count.get(most_frequent_inversion)
+            comp_id_to_count = number_of_windows_before_decompilation(callsite)
+            if len(comp_id_to_count) > 0:
+                average_inversions_before_decompilations = reduce(
+                    lambda a, b: a + b, comp_id_to_count.values(), 0
+                ) / len(comp_id_to_count)
+            else:
+                average_inversions_before_decompilations = 0
+            raw = callsite.raw
+            compile_id_to_receiver_count = find_receiver_reduction(raw)
             statistics[callsite.callsite] = {
                 "changes": len(callsite.changes),
                 "inversions": len(callsite.inversions),
@@ -40,7 +60,24 @@ def main():
                 "decompilations": len(callsite.decompilations()),
                 "changes after compilation": len(c),
                 "inversions after compilation": len(i),
+                "most frequent oscillation": str(most_frequent_oscillation),
+                "most frequent oscillation value": max_oscillation_frequency,
+                "most frequent inversion": str(most_frequent_inversion),
+                "most frequent inversion value": max_inversion_frequency,
+                "average_inversions_before_decompilation": average_inversions_before_decompilations,
             }
+            receiver_count_data = {}
+            for k, v in compile_id_to_receiver_count.items():
+                before, after = v
+                receiver_count_data[f"{k} - before"] = len(before)
+                receiver_count_data[f"{k} - after"] = len(after)
+            df = pd.DataFrame(receiver_count_data, index=[0])
+            out = output_folder.joinpath(args.name)
+            out.mkdir(exist_ok=True)
+            callsite_output_csv = out.joinpath(
+                f"{callsite.callsite.replace('/', '_').replace(' ', '_')}.csv"
+            )
+            df.to_csv(callsite_output_csv)
     df = pd.DataFrame(statistics)
     df = df.T
     df = df.reset_index()
@@ -57,6 +94,90 @@ def main():
     normalized_df.to_csv(normalized_csv)
     save_statistics(df, output_folder, args.name)
     return
+
+
+def find_receiver_reduction(raw: List[str]):
+    compile_id_to_receiver_count = dict()
+    last_id = "interpreter"
+    before = set()
+    current_receivers = set()
+    raw = [el for el in raw if not el.strip().startswith("window")]
+
+    for el in raw:
+        if el.strip().startswith("Compilation"):
+            compile_id_to_receiver_count[last_id] = (before, current_receivers)
+            before = current_receivers
+            current_receivers = set()
+            matches = re.findall(r"id = \d+", el)
+            id = matches[0].replace("id = ", "")
+            last_id = id
+        elif el.strip().startswith("Decompilation"):
+            matches = re.findall(r"compile_id = \d+", el)
+            id = matches[0].replace("compile_id = ", "")
+            if id in compile_id_to_receiver_count:
+                continue
+            if last_id not in compile_id_to_receiver_count:
+                compile_id_to_receiver_count[last_id] = (before, current_receivers)
+            # before = set()
+
+            if last_id == id:
+                last_id = "interpreter"
+                before = set()
+                current_receivers = set()
+        else:
+            # compile_id_to_receiver_count[last_id].append(el)
+            receivers = {
+                e.split(": ")[0].strip()
+                for e in el.split(", ")
+                if float(e.split(": ")[1]) != 0
+            }
+            current_receivers.update(receivers)
+            pass
+
+    if last_id not in compile_id_to_receiver_count:
+        compile_id_to_receiver_count[last_id] = (before, current_receivers)
+
+    return compile_id_to_receiver_count
+
+
+def find_oscillations(i: List[str]):
+    inversions = []
+    for window, first, second in zip(*[iter(i)] * 3):
+        first_window_elements = [
+            (el.split(": ")[0].strip(), float(el.split(": ")[1].strip()))
+            for el in first.replace("First Window: ", "").split(", ")
+        ]
+        second_window_elements = [
+            (el.split(": ")[0].strip(), float(el.split(": ")[1].strip()))
+            for el in second.replace("Second Window: ", "").split(", ")
+        ]
+        window1_receivers = [
+            el[0]
+            for el in sorted(first_window_elements, key=lambda e: e[1], reverse=True)
+        ]
+        window2_receivers = [
+            el[0]
+            for el in sorted(second_window_elements, key=lambda e: e[1], reverse=True)
+        ]
+        inversions.append((" - ".join(window1_receivers), " -".join(window2_receivers)))
+        pass
+    inversion_to_count = defaultdict(int)
+    for i in inversions:
+        inversion_to_count[i] += 1
+    oscillations = defaultdict(int)
+    for i in range(len(inversions) - 1):
+        i1 = inversions[i]
+        i2 = inversions[i + 1]
+        oscillations[(i1, i2)] += 1
+    for i in range(1, len(inversions) - 1):
+        i1 = inversions[i]
+        i2 = inversions[i + 1]
+        oscillations[(i1, i2)] += 1
+    return oscillations, inversion_to_count
+
+
+def windows_count_to_decompilation():
+    pass
 
 
 def normalize_by_hotness(df: pd.DataFrame, hotness: Path) -> pd.DataFrame:
@@ -137,12 +258,6 @@ def save_statistics(df: pd.DataFrame, output_folder: Path, name: str):
         plt.close()
     df = df.sort_values("inversions after compilation", ascending=False)
     df.to_csv(output_folder.joinpath(f"{name}_statistics.csv"))
-    # c_75 = np.percentile(df["changes after compilation"], 75)
-    # i_75 = np.percentile(df["inversions after compilation"], 75)
-    # cc = df[df["changes after compilation"] > c_75]
-    # cc.to_csv(output_folder.joinpath(f"{name}_cc.csv"))
-    # ic = df[df["inversions after compilation"] > i_75]
-    # ic.to_csv(output_folder.joinpath(f"{name}_ic.csv"))
     return data
 
 
@@ -157,6 +272,7 @@ class CallSite:
     callsite: str
     changes: List[str]
     inversions: List[str]
+    raw: List[str]
 
     def compilations(self) -> List[str]:
         return [e for e in self.changes if e.strip().startswith("Compilation")]
@@ -170,35 +286,43 @@ def parse_results(f: Path) -> List[CallSite]:
     current_callsite = ""
     changes = []
     inversions = []
-    processing_changes = False
+    raw = []
+    processing_type = "changes"
+
     callsites = []
     for line in handle:
         if line.startswith("Callsite"):
             callsite = line.split(":")[1].strip()
             if current_callsite:
                 # save callsite information
-                callsites.append(CallSite(current_callsite, changes, inversions))
-                processing_changes = False
+                callsites.append(CallSite(current_callsite, changes, inversions, raw))
+                processing_type = "changes"
                 changes = []
                 inversions = []
+                raw = []
                 pass
             current_callsite = callsite
         elif line.strip().startswith("Changes"):
-            processing_changes = True
+            processing_type = "changes"
         elif line.strip().startswith("Inversions"):
-            processing_changes = False
+            processing_type = "inversions"
+        elif line.strip().startswith("RawWindowInformation"):
+            processing_type = "raw"
         else:
-            if processing_changes:
-                changes.append(line)
-            else:
-                inversions.append(line)
+            match processing_type:
+                case "changes":
+                    changes.append(line)
+                case "inversions":
+                    inversions.append(line)
+                case "raw":
+                    raw.append(line)
 
     if current_callsite:
-        callsites.append(CallSite(current_callsite, changes, inversions))
+        callsites.append(CallSite(current_callsite, changes, inversions, raw))
     return callsites
 
 
-def compute_statistics(callsite: CallSite):
+def extract_compilation_decompilation(callsite: CallSite):
     compile_id_to_changes = defaultdict(list)
     last_id = "interpreter"
     for el in callsite.changes:
@@ -231,6 +355,28 @@ def compute_statistics(callsite: CallSite):
     c = [e for k, v in compile_id_to_changes.items() for e in v if k != "interpreter"]
     i = [e for k, v in compile_id_to_inv.items() for e in v if k != "interpreter"]
     return c, i
+
+
+def number_of_windows_before_decompilation(callsite: CallSite) -> Dict[str, int]:
+    compile_id_to_inv_count = defaultdict(int)
+    compile_id_to_inv = defaultdict(list)
+    last_id = "interpreter"
+    for el in callsite.inversions:
+        if el.strip().startswith("Compilation") and "kind = c2" in el:
+            matches = re.findall(r"id = \d+", el)
+            id = matches[0].replace("id = ", "")
+            last_id = id
+        elif el.strip().startswith("Decompilation"):
+            matches = re.findall(r"compile_id = \d+", el)
+            id = matches[0].replace("compile_id = ", "")
+            if id in compile_id_to_inv:
+                # the inversions are always reported as triplets of lines.
+                compile_id_to_inv_count[id] = len(compile_id_to_inv[id]) / 3
+            if last_id == id:
+                last_id = "interpreter"
+        else:
+            compile_id_to_inv[last_id].append(el)
+    return compile_id_to_inv_count
 
 
 if __name__ == "__main__":

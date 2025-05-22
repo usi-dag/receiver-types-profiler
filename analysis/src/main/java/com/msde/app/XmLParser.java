@@ -9,16 +9,16 @@ import java.util.stream.Collectors;
 
 
 class XmlParser {
-  private File compilerLog;
   private List<String> content;
 
   public XmlParser(File compilerLog) {
-    this.compilerLog = compilerLog;
     try {
-        content = Files.lines(compilerLog.toPath()).filter(e -> e.contains("task") ||
+        content = Files.lines(compilerLog.toPath()).filter(e -> e.contains("task ") ||
           e.contains("make_not_entrant") ||
           e.contains("uncommon_trap") ||
-          e.contains("hotspot_log"))
+          e.contains("hotspot_log") ||
+          e.startsWith("<nmethod ")
+        )
         .map(l -> l.replace("&lt;", "<").replace("&gt;", ">"))
         .collect(Collectors.toList());
     } catch (IOException e) {
@@ -52,7 +52,21 @@ class XmlParser {
         }
         return new Compilation(Long.decode(stamp), compileId, kind);
       }).toList();
-      return comps;
+
+      List<Compilation> cc = this.content.stream()
+              .filter(l -> l.startsWith("<nmethod ") && l.contains(methodDescriptor))
+              .map(l -> {
+                String compileId = l.split("compile_id='")[1].split("'")[0];
+                String stamp = l.split("stamp='")[1].split("'")[0];
+                stamp = stamp.replace(".", "");
+                String compiler=l.split("compiler='")[1].split("'")[0];
+                return new Compilation(Long.decode(stamp), compileId, compiler);
+              }).collect(Collectors.toCollection(ArrayList::new));
+
+      List<String> ids = cc.stream().map(Compilation::id).collect(Collectors.toCollection(ArrayList::new));
+      comps = comps.stream().filter(c-> !ids.contains(c.id())).toList();
+      cc.addAll(comps);
+      return cc;
     } catch (Exception e) {
       System.err.println(e.getMessage());
     }
@@ -66,8 +80,15 @@ class XmlParser {
       List<String> compIds = this.content.stream().filter(l -> l.startsWith("<task ") && l.contains(methodDescriptor))
       .map(l -> l.split("compile_id='")[1].split("'")[0]).toList();
       List<Decompilation> docompilations = new ArrayList<>();
+
+      List<String> nMethodCompIds = this.content.stream().filter(l -> l.startsWith("<nmethod ") && l.contains(methodDescriptor))
+      .map(l -> l.split("compile_id='")[1].split("'")[0]).collect(Collectors.toCollection(ArrayList::new));
+
+      List<String> cc = compIds.stream().filter(c-> !nMethodCompIds.contains(c)).toList();
+
+      nMethodCompIds.addAll(cc);
       
-      for(String compileId: compIds){
+      for(String compileId: nMethodCompIds){
         List<String> nonEntrant = this.content.stream().filter(l ->
            l.startsWith("<make_not_entrant") &&
            l.contains(String.format("compile_id='%s'", compileId))).toList();

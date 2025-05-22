@@ -97,9 +97,14 @@ for entry in "${benchmarks[@]}"; do
       continue
     fi
 
+    cp output/* result/
+
+    if [ $MODE = "local" ]; then
+      continue
+    fi
+
     ARCHIVENAME="$SUITE"_"$entry"_"$i".tar.gz
     echo $ARCHIVENAME
-    cp output/* result/
     tar --use-compress-program="gzip --fast" -cf $ARCHIVENAME result
 
     # ARCHIVEDIR=/mnt/hdd/archives/

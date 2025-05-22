@@ -7,7 +7,7 @@ import ch.usi.dag.disl.staticcontext.MethodStaticContext;
 public class Guard{
     @GuardMethod
     public static boolean isThread(ClassStaticContext csc, MethodStaticContext mc) {
-      if(mc.isMethodStatic() || mc.isMethodConstructor() || mc.isMethodPrivate() || mc.isMethodFinal() || mc.isMethodInitializer()){
+      if(mc.isMethodStatic() || mc.isMethodConstructor() || mc.isMethodPrivate() || mc.isMethodInitializer()){
         return false;
       }
       return true;

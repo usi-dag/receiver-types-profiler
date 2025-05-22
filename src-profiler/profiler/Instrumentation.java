@@ -37,13 +37,25 @@ public class Instrumentation {
 
    @Before(marker=BodyMarker.class, scope="*", guard=Guard.class)
    static void beforeEveryMethod(DynamicContext dc, MethodStaticContext mc){
-      Object obj = dc.getThis();
-      if(i == Profiler.length){
-        // file is full
-        mb = Profiler.getMemoryMappedFile();
-        i = 0;
+     // NOTE: ClassStaticContext getName() and obj.getClass().getName() do not return the same result.
+     // ClassStaticContext ofter returns the super type of an object, likely the declared type in the source code.
+     // EX:
+     //  obj.getClass().getName()
+     //  jdk.internal.loader.ClassLoaders$AppClassLoader
+     //  ClassStaticContext.getName()
+     //  java.lang.ClassLoader
+     // 
+     
+      if(callsite != -1){
+        Object obj = dc.getThis();
+        if(i == Profiler.length){
+          // file is full
+          mb = Profiler.getMemoryMappedFile();
+          i = 0;
+        }
+        i = Profiler.putInfo(mb, i, callsite, obj);
       }
-      i = Profiler.putInfo(mb, i, callsite, obj);
+      // NOTE: Putting this assignment inside the if statement above breaks everything.
       callsite = -1;
    }
 
