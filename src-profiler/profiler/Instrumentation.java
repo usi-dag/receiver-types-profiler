@@ -46,7 +46,7 @@ public class Instrumentation {
      //  java.lang.ClassLoader
      // 
      
-      if(callsite == -1){
+      if(callsite != -1){
         Object obj = dc.getThis();
         if(i == Profiler.length){
           // file is full
