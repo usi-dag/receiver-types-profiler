@@ -12,7 +12,10 @@ from functools import reduce
 
 
 def main():
-    parser: ArgumentParser = ArgumentParser()
+    parser: ArgumentParser = ArgumentParser(
+        "Analysis",
+        description="This script can be used to analyse the result of runnig the instrumentation and data digestion",
+    )
     parser.add_argument(
         "--input-folder", dest="input_folder", type=Path, default=Path("./result/")
     )
@@ -31,11 +34,14 @@ def main():
     hotness: Path = args.hotness
     result_files = [f for f in input_files if f.name.startswith("result")]
     statistics = {}
+    out = output_folder.joinpath(args.name)
+    out.mkdir(exist_ok=True)
     for f in result_files:
-        callsites = parse_results(f)
+        callsites = extract_callsite_information(f)
         for callsite in callsites:
             c, i = extract_compilation_decompilation(callsite)
             oscillations, inversions_to_count = find_oscillations(i)
+            save_oscillations(oscillations, out, callsite)
             most_frequent_oscillation = max(
                 oscillations, key=oscillations.get, default=()
             )
@@ -52,7 +58,6 @@ def main():
             else:
                 average_inversions_before_decompilations = 0
             raw = callsite.raw
-            compile_id_to_receiver_count = find_receiver_reduction(raw)
             statistics[callsite.callsite] = {
                 "changes": len(callsite.changes),
                 "inversions": len(callsite.inversions),
@@ -66,18 +71,8 @@ def main():
                 "most frequent inversion value": max_inversion_frequency,
                 "average_inversions_before_decompilation": average_inversions_before_decompilations,
             }
-            receiver_count_data = {}
-            for k, v in compile_id_to_receiver_count.items():
-                before, after = v
-                receiver_count_data[f"{k} - before"] = len(before)
-                receiver_count_data[f"{k} - after"] = len(after)
-            df = pd.DataFrame(receiver_count_data, index=[0])
-            out = output_folder.joinpath(args.name)
-            out.mkdir(exist_ok=True)
-            callsite_output_csv = out.joinpath(
-                f"{callsite.callsite.replace('/', '_').replace(' ', '_')}.csv"
-            )
-            df.to_csv(callsite_output_csv)
+            compile_id_to_receiver_count = find_receiver_reduction(raw)
+            save_receiver_reduction(compile_id_to_receiver_count, out, callsite)
     df = pd.DataFrame(statistics)
     df = df.T
     df = df.reset_index()
@@ -90,9 +85,43 @@ def main():
 
     df["method_descriptor"] = df.apply(extract_method_name, axis=1)
     normalized_df = normalize_by_hotness(df, hotness)
-    normalized_csv = output_folder.joinpath(f"{args.name}_normalized.csv")
+    normalized_csv = out.joinpath(f"{args.name}_normalized.csv")
     normalized_df.to_csv(normalized_csv)
-    save_statistics(df, output_folder, args.name)
+    save_statistics(df, out, args.name)
+    return
+
+
+def save_receiver_reduction(compile_id_to_receiver_count, out, callsite):
+    if not compile_id_to_receiver_count:
+        return
+    reduction_folder = out.joinpath("reduction")
+    if not reduction_folder.is_dir():
+        reduction_folder.mkdir()
+
+    receiver_count_data = {}
+    for k, v in compile_id_to_receiver_count.items():
+        before, after = v
+        receiver_count_data[f"{k} - before"] = len(before)
+        receiver_count_data[f"{k} - after"] = len(after)
+    df = pd.DataFrame(receiver_count_data, index=[0])
+    callsite_output_csv = reduction_folder.joinpath(
+        f"{callsite.callsite.replace('/', '_').replace(' ', '_')}.csv"
+    )
+    df.to_csv(callsite_output_csv)
+    return
+
+
+def save_oscillations(oscillations, output_folder, callsite):
+    if not oscillations:
+        return
+    oscillation_folder = output_folder.joinpath("oscillations")
+    if not oscillation_folder.is_dir():
+        oscillation_folder.mkdir()
+    df = pd.DataFrame(oscillations, index=[0, 1])
+    output_file = oscillation_folder.joinpath(
+        f"{callsite.callsite.replace('/', '_').replace(' ', '_')}.csv"
+    )
+    df.to_csv(output_file)
     return
 
 
@@ -176,10 +205,6 @@ def find_oscillations(i: List[str]):
     return oscillations, inversion_to_count
 
 
-def windows_count_to_decompilation():
-    pass
-
-
 def normalize_by_hotness(df: pd.DataFrame, hotness: Path) -> pd.DataFrame:
     hot_df: pd.DataFrame = pd.read_csv(hotness)
     new_df = pd.merge(df, hot_df, on="method_descriptor", how="left")
@@ -216,7 +241,23 @@ def normalize_by_hotness(df: pd.DataFrame, hotness: Path) -> pd.DataFrame:
 def save_statistics(df: pd.DataFrame, output_folder: Path, name: str):
     data = {}
     # bar plot
-    columns = [e for e in df.columns if e not in ["id", "index", "method_descriptor"]]
+    columns = [
+        e
+        for e in df.columns
+        if e
+        not in [
+            "id",
+            "index",
+            "method_descriptor",
+            "most frequent inversion",
+            "most frequent oscillation",
+            "average_inversions_before_decompilation",
+            "most frequent inversion value",
+            "most frequent oscillation value",
+            "inversions after compilation",
+            "changes after compilation",
+        ]
+    ]
     for column in columns:
         sorted = df.sort_values(by=column, ascending=False).head(30)
         color = mpl.cm.inferno_r(np.linspace(0.4, 0.8, len(sorted)))
@@ -250,6 +291,7 @@ def save_statistics(df: pd.DataFrame, output_folder: Path, name: str):
     for column in columns:
         cleaned = df[df[column] > 0]
         color = mpl.cm.inferno_r(np.linspace(0.4, 0.8, len(cleaned)))
+        cleaned[column] = cleaned[column].astype(int)
         p = cleaned.boxplot(column=column, grid=False)
         plt.title(f"{column.capitalize()} for {name}")
         plt.savefig(
@@ -281,7 +323,7 @@ class CallSite:
         return [e for e in self.changes if e.strip().startswith("Decompilation")]
 
 
-def parse_results(f: Path) -> List[CallSite]:
+def extract_callsite_information(f: Path) -> List[CallSite]:
     handle = open(f, "r")
     current_callsite = ""
     changes = []

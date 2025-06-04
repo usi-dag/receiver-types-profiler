@@ -12,9 +12,13 @@ from statistics import geometric_mean
 
 
 def main() -> None:
-    parser: ArgumentParser = ArgumentParser()
-    parser.add_argument("--input-folder", dest="input_folder", type=Path, default=Path("./output/"))
-    parser.add_argument("--delta", type=int, default=1000, help="Timestamp in microseconds")
+    parser: ArgumentParser = ArgumentParser("Compare instrumentation time")
+    parser.add_argument(
+        "--input-folder", dest="input_folder", type=Path, default=Path("./output/")
+    )
+    parser.add_argument(
+        "--delta", type=int, default=1000, help="Timestamp in microseconds"
+    )
     args: Namespace = parser.parse_args()
     input_folder: Path = args.input_folder
     # input_folder = Path("/home/ubuntu/receiver-types-profiler/overhead_times")
@@ -40,7 +44,9 @@ def main() -> None:
                             a = datetime.strptime(matches[0], "%M:%S.%felapsed")
                         except ValueError as e:
                             a = datetime.strptime(matches[0], "%M:%S:%felapsed")
-                        elapsed_time = 60*a.minute+ a.second + a.microsecond / 1000000
+                        elapsed_time = (
+                            60 * a.minute + a.second + a.microsecond / 1000000
+                        )
                         elapsed_times.append(elapsed_time)
                     pass
             if "instrumented" in f.name:
@@ -48,7 +54,7 @@ def main() -> None:
             else:
                 times["default"] = elapsed_times
         if len(times["default"]) != len(times["instrumented"]):
-            continue 
+            continue
         benchmark[k] = times
     statistics = []
     for k, v in benchmark.items():
@@ -57,19 +63,22 @@ def main() -> None:
     output_file: Path = plot_dir().joinpath("statistics.txt")
     for el in statistics:
         with output_file.open("a") as of:
-            to_write = f"Benchmark: {el["name"]}\n"
-            to_write += f"    Defeault Mean: {el["default mean"]}\n"
-            to_write += f"    Instrumented Mean: {el["instrumented mean"]}\n"
-            to_write += f"    P-value: {el["will pvalue"]}\n"
-            to_write += f"    Will statistic: {el["will statistic"]}\n"
-            to_write += f"    Cohen d: {el["cohend"]}\n"
+            to_write = f"Benchmark: {el['name']}\n"
+            to_write += f"    Defeault Mean: {el['default mean']}\n"
+            to_write += f"    Instrumented Mean: {el['instrumented mean']}\n"
+            to_write += f"    P-value: {el['will pvalue']}\n"
+            to_write += f"    Will statistic: {el['will statistic']}\n"
+            to_write += f"    Cohen d: {el['cohend']}\n"
             to_write += "\n"
             of.write(to_write)
 
     return
 
+
 def cohen_d(deap: List[float], random: List[float]):
-    return (np.mean(deap) - np.mean(random)) / (np.sqrt((np.std(deap) ** 2 + np.std(random) ** 2) / 2))
+    return (np.mean(deap) - np.mean(random)) / (
+        np.sqrt((np.std(deap) ** 2 + np.std(random) ** 2) / 2)
+    )
 
 
 def plot_dir() -> Path:
@@ -98,7 +107,7 @@ def compute_statistics(name: str, value: Dict[str, List[float]]):
     print(f"    default mean: {avg_default}")
     print(f"    instrumented geometric mean: {geo_instrumented}")
     print(f"    default geometric mean: {geo_default}")
-    print(f"    ratio: {geo_instrumented/geo_default}")
+    print(f"    ratio: {geo_instrumented / geo_default}")
     print(f"    cohend: {cohend}")
     print(f"    wil: {wil}")
     data["name"] = name
@@ -108,6 +117,7 @@ def compute_statistics(name: str, value: Dict[str, List[float]]):
     data["will statistic"] = wil[0]
     data["will pvalue"] = wil[1]
     return data
-    
+
+
 if __name__ == "__main__":
     main()

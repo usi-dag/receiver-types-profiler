@@ -6,7 +6,7 @@ import re
 
 
 def main():
-    parser: ArgumentParser = ArgumentParser()
+    parser: ArgumentParser = ArgumentParser("Compare compiler logs.")
     parser.add_argument(
         "--input-folder", dest="input_folder", type=Path, default=Path("./result/")
     )
