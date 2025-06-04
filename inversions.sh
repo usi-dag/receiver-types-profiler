@@ -22,14 +22,14 @@ if [ ! -d $EXTRACTION_DIR ]; then
   mkdir $EXTRACTION_DIR
 fi
 
-rm $EXTRACTION_DIR/*
+rm -r $EXTRACTION_DIR/*
 
 GREEN='\033[0;32m'
 NC='\033[0m'
 
 source .venv/bin/activate
 
-for f in archives/*; do
+for f in $INPUT/*; do
   echo -e "${GREEN}WORKING ON FILE $f${NC}"
   base=$(basename -- "$f")
   iteration="${base/ren_/}"

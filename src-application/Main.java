@@ -15,13 +15,13 @@ public class Main {
   public static M1 getEl(int i) {
     // this should apply before compilation
     if (i < 100000) {
-      if (Math.random() > 0.7) {
+      if (i%10 > 7) {
         return new M2();
       }
       return new M1();
     }
     // this should apply after compilation
-    if (Math.random() > 0.3) {
+    if (i%10 > 3) {
       return new M2();
     }
     return new M1();

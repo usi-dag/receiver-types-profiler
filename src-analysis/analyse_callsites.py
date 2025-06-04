@@ -1,4 +1,5 @@
 import re
+import csv
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import List, Dict
@@ -36,12 +37,18 @@ def main():
     statistics = {}
     out = output_folder.joinpath(args.name)
     out.mkdir(exist_ok=True)
+    callsite_id = 0
+    callsite_to_id = {}
     for f in result_files:
         callsites = extract_callsite_information(f)
         for callsite in callsites:
             c, i = extract_compilation_decompilation(callsite)
+            # NOTE: this mapping between callsite and id is necessary since the callsite might exceed
+            # the limit of a valid file name length on linux
+            callsite_to_id[callsite.callsite] = callsite_id
+            callsite_id += 1
             oscillations, inversions_to_count = find_oscillations(i)
-            save_oscillations(oscillations, out, callsite)
+            save_oscillations(oscillations, out, callsite_to_id[callsite.callsite])
             most_frequent_oscillation = max(
                 oscillations, key=oscillations.get, default=()
             )
@@ -72,7 +79,9 @@ def main():
                 "average_inversions_before_decompilation": average_inversions_before_decompilations,
             }
             compile_id_to_receiver_count = find_receiver_reduction(raw)
-            save_receiver_reduction(compile_id_to_receiver_count, out, callsite)
+            save_receiver_reduction(
+                compile_id_to_receiver_count, out, callsite_to_id[callsite.callsite]
+            )
     df = pd.DataFrame(statistics)
     df = df.T
     df = df.reset_index()
@@ -88,6 +97,11 @@ def main():
     normalized_csv = out.joinpath(f"{args.name}_normalized.csv")
     normalized_df.to_csv(normalized_csv)
     save_statistics(df, out, args.name)
+    with open(out.joinpath("callside_to_id.csv"), "w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["key", "value"])
+        for key, value in callsite_to_id.items():
+            writer.writerow([key, value])
     return
 
 
@@ -104,9 +118,7 @@ def save_receiver_reduction(compile_id_to_receiver_count, out, callsite):
         receiver_count_data[f"{k} - before"] = len(before)
         receiver_count_data[f"{k} - after"] = len(after)
     df = pd.DataFrame(receiver_count_data, index=[0])
-    callsite_output_csv = reduction_folder.joinpath(
-        f"{callsite.callsite.replace('/', '_').replace(' ', '_')}.csv"
-    )
+    callsite_output_csv = reduction_folder.joinpath(f"reduction_{callsite}.csv")
     df.to_csv(callsite_output_csv)
     return
 
@@ -118,9 +130,7 @@ def save_oscillations(oscillations, output_folder, callsite):
     if not oscillation_folder.is_dir():
         oscillation_folder.mkdir()
     df = pd.DataFrame(oscillations, index=[0, 1])
-    output_file = oscillation_folder.joinpath(
-        f"{callsite.callsite.replace('/', '_').replace(' ', '_')}.csv"
-    )
+    output_file = oscillation_folder.joinpath(f"oscillation_{callsite}.csv")
     df.to_csv(output_file)
     return
 
