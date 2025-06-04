@@ -21,34 +21,56 @@ import java.util.concurrent.locks.ReentrantLock;
 import java.util.HashMap;
 
 public class Utility {
-  record Args(File binaryFile, File callsiteId, File classId) {
+  record Args(File binaryFile, File callsiteId, File classId, File inputFolder) {
   }
 
   private static Args parseArgs(String[] args) {
-    Args parsedArgs = new Args(new File("/home/ubuntu/receiver-types-profiler/callsite.txt"),
+    Args parsedArgs = new Args(null,
         new File("/home/ubuntu/receiver-types-profiler/output/callsite_to_id_21_03_25_11_25.csv"),
-        new File("/home/ubuntu/receiver-types-profiler/output/classNameMapping_21_03_25_11_25.csv")
+        new File("/home/ubuntu/receiver-types-profiler/output/classNameMapping_21_03_25_11_25.csv"),
+        null
       );
     int i = 0;
+    if(args.length < 1){
+        System.out.println("usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid] [--input-folder folder]");
+        System.out.println("       --input-folder and --callsite are not compatible.");
+        System.exit(0);
+    }
     while (i < args.length) {
       String current = args[i++];
       switch (current) {
         case "--callsite", "-c" -> {
           File callsite = new File(args[i++]);
-          parsedArgs = new Args(callsite, parsedArgs.callsiteId, parsedArgs.classId);
+          if(parsedArgs.inputFolder != null){
+            System.out.println("usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid] [--input-folder folder]");
+            System.out.println("       --input-folder and --callsite are not compatible.");
+            System.exit(0);
+          }
+          parsedArgs = new Args(callsite, parsedArgs.callsiteId, parsedArgs.classId, parsedArgs.inputFolder );
         }
         case "--id", "-i" -> {
           File callsiteId = new File(args[i++]);
-          parsedArgs = new Args(parsedArgs.binaryFile, callsiteId, parsedArgs.classId);
+          parsedArgs = new Args(parsedArgs.binaryFile, callsiteId, parsedArgs.classId, parsedArgs.inputFolder);
 
         }
         case "--id-class", "-k" -> {
           File classId= new File(args[i++]);
-          parsedArgs = new Args(parsedArgs.binaryFile, parsedArgs.callsiteId, classId);
+          parsedArgs = new Args(parsedArgs.binaryFile, parsedArgs.callsiteId, classId, parsedArgs.inputFolder);
 
         }
+        case "--input-folder", "-f" -> {
+          File inputFolder = new File(args[i++]);
+          if(parsedArgs.binaryFile!=null){
+            System.out.println("usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid] [--input-folder folder]");
+            System.out.println("       --input-folder and --callsite are not compatible.");
+            System.exit(0);
+            
+          }
+          parsedArgs = new Args(parsedArgs.binaryFile, parsedArgs.callsiteId, parsedArgs.classId, inputFolder);
+        }
         default -> {
-          System.out.println("usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid]");
+          System.out.println("usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid] [--input-folder folder]");
+          System.out.println("       --input-folder and --callsite are not compatible.");
           System.exit(0);
         }
       }
@@ -62,13 +84,32 @@ public class Utility {
     Args arguments = parseArgs(args);
     Map<Long, String> idToCallsite = parseCsvMapping(arguments.callsiteId);
     Map<Long, String> idToClassname= parseCsvMapping(arguments.classId);
-    File output = new File("readable.txt");
-    try{
-      output.createNewFile();
-    }catch(IOException e){
-      System.err.println(e.getMessage());
+    if(arguments.binaryFile!=null){
+      File output = new File("readable.txt");
+      try{
+        output.createNewFile();
+      }catch(IOException e){
+        System.err.println(e.getMessage());
+      }
+      binaryToReadable(arguments.binaryFile, idToCallsite, idToClassname, output);
+    } else {
+        File[] callsites = arguments.inputFolder.listFiles((el) -> el.getName().startsWith("callsite"));
+        assert callsites != null;
+        File outputFolder = new File("readable");
+        if(!outputFolder.exists()){
+          outputFolder.mkdir();
+        }
+        for(File callsiteFile: callsites){
+          String callsiteFileNumber = callsiteFile.getName().replace("callsite_", "").replace(".txt", "");
+          File output = new File(outputFolder, String.format("readable_%s.txt", callsiteFileNumber));
+          try{
+            output.createNewFile();
+          }catch(IOException e){
+            System.err.println(e.getMessage());
+          }
+          binaryToReadable(callsiteFile, idToCallsite, idToClassname, output);
+        }
     }
-    binaryToReadable(arguments.binaryFile, idToCallsite, idToClassname, output);
   }
 
   private static Map<Long, String> parseCsvMapping(File inputFile) {
@@ -125,7 +166,6 @@ public class Utility {
       for (int j = 0; j < info.size(); j += 3) {
         sb.append(String.format("%s %s %s\n", info.get(j), info.get(j + 1), info.get(j + 2)));
       }
-      System.out.println("WRITING");
       Files.writeString(output.toPath(), sb, StandardOpenOption.APPEND);
     } catch (IOException e) {
       System.err.println(e.getMessage());
