@@ -96,7 +96,9 @@ def main():
     normalized_df = normalize_by_hotness(df, hotness)
     normalized_csv = out.joinpath(f"{args.name}_normalized.csv")
     normalized_df.to_csv(normalized_csv)
-    save_statistics(df, out, args.name)
+    df = df.sort_values("inversions after compilation", ascending=False)
+    df.to_csv(output_folder.joinpath(f"{args.name}_statistics.csv"))
+    # save_plots(df, out, args.name)
     with open(out.joinpath("callside_to_id.csv"), "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["key", "value"])
@@ -248,7 +250,7 @@ def normalize_by_hotness(df: pd.DataFrame, hotness: Path) -> pd.DataFrame:
     return aggregated_metrics
 
 
-def save_statistics(df: pd.DataFrame, output_folder: Path, name: str):
+def save_plots(df: pd.DataFrame, output_folder: Path, name: str):
     data = {}
     # bar plot
     columns = [
@@ -308,8 +310,6 @@ def save_statistics(df: pd.DataFrame, output_folder: Path, name: str):
             output_folder.joinpath(f"{name}_{column.replace(' ', '_')}_boxplot.png")
         )
         plt.close()
-    df = df.sort_values("inversions after compilation", ascending=False)
-    df.to_csv(output_folder.joinpath(f"{name}_statistics.csv"))
     return data
 
 
