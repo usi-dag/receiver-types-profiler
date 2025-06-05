@@ -28,7 +28,7 @@ def main():
     args: Namespace = parser.parse_args()
     input_folder = args.input_folder
     input_files: List[Path] = [f for f in input_folder.iterdir()]
-    input_files = [f for f in input_files if f.name == "result_114.txt"]
+    # input_files = [f for f in input_files if f.name == "result_114.txt"]
     output_folder: Path = args.output_folder
     if not output_folder.is_dir():
         output_folder.mkdir()
