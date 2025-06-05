@@ -35,7 +35,7 @@ for f in $INPUT/*; do
   iteration="${base/ren_/}"
   iteration="${iteration/.tar.gz/}"
   name=$(echo "$iteration" | sed -E "s/_[0-9]+//")
-  OUTPUT=$BASE_OUTPUT/$iteration
+  OUTPUT=$BASE_OUTPUT
   HOTNESS_FILE=$HOTNESS/hot_methods_$name.csv
   tar -xzf $f -C $EXTRACTION_DIR
   python3 src-analysis/analyse_callsites.py --input-folder=$EXTRACTION_DIR/result --output-folder=$OUTPUT --hotness=$HOTNESS_FILE --name=$iteration
