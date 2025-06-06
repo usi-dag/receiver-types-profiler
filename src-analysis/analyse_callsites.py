@@ -97,7 +97,7 @@ def main():
     normalized_csv = out.joinpath(f"{args.name}_normalized.csv")
     normalized_df.to_csv(normalized_csv)
     df = df.sort_values("inversions after compilation", ascending=False)
-    df.to_csv(output_folder.joinpath(f"{args.name}_statistics.csv"))
+    df.to_csv(out.joinpath(f"{args.name}_statistics.csv"))
     # save_plots(df, out, args.name)
     with open(out.joinpath("callside_to_id.csv"), "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
