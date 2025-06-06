@@ -7,6 +7,7 @@ import java.nio.MappedByteBuffer;
 
 import ch.usi.dag.disl.marker.BodyMarker;
 import ch.usi.dag.disl.staticcontext.MethodStaticContext;
+import ch.usi.dag.disl.staticcontext.ClassStaticContext;
 import profiler.CustomContext;
 import ch.usi.dag.disl.marker.BytecodeMarker;
 import ch.usi.dag.disl.dynamiccontext.DynamicContext;
@@ -58,6 +59,32 @@ public class Instrumentation {
       // NOTE: Putting this assignment inside the if statement above breaks everything.
       callsite = -1;
    }
+
+  @Before(marker=BodyMarker.class, scope="*", guard=GuardFinal.class)
+   static void beforeEveryMethodFinal(DynamicContext dc, MethodStaticContext mc, ClassStaticContext csc){
+     // NOTE: ClassStaticContext getName() and obj.getClass().getName() do not return the same result.
+     // ClassStaticContext ofter returns the super type of an object, likely the declared type in the source code.
+     // EX:
+     //  obj.getClass().getName()
+     //  jdk.internal.loader.ClassLoaders$AppClassLoader
+     //  ClassStaticContext.getName()
+     //  java.lang.ClassLoader
+     // 
+     
+      if(callsite != -1){
+        String name = csc.getName();
+        System.out.println(mc.getUniqueInternalName());
+        if(i == Profiler.length){
+          // file is full
+          mb = Profiler.getMemoryMappedFile();
+          i = 0;
+        }
+        i = Profiler.putInfo(mb, i, callsite, name);
+      }
+      // NOTE: Putting this assignment inside the if statement above breaks everything.
+      callsite = -1;
+   }
+
 
     @Before(marker=BytecodeMarker.class, args="invokeinterface", scope="*")
     static void beforeInvokeInterface(CustomContext cc, MethodStaticContext mc){
