@@ -86,17 +86,6 @@ public class Profiler{
 
     }
 
-    public static int putInfo(MappedByteBuffer mb, int index, long callsite, String name){
-      long time = System.nanoTime();
-      long timeDiff = (time - Profiler.beginning)/1000;
-      long tid = classNameToId.computeIfAbsent(name, (k) -> id++);
-
-      long val = ((callsite) << 32) | (tid & 0xffffffffL);
-      mb.putLong(val);
-      mb.putLong(timeDiff);
-      return index+3;
-    }
-
     private static void saveClassNameMapping(){
       SimpleDateFormat dateFormat = new SimpleDateFormat("dd_MM_yy_HH_mm");
       Date date = new Date();
