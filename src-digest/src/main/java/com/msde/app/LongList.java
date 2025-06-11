@@ -84,6 +84,13 @@ class LongList implements Iterable<Long>{
     return max;
   }
 
+
+  public void clear(){
+    this.l.clear();
+    this.current = new long[length];
+    this.index = 0;
+  }
+
   @Override
   public Iterator<Long> iterator() {
     Iterator<Long> it = new Iterator<>() {

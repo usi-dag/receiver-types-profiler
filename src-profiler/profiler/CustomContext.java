@@ -48,11 +48,8 @@ public class CustomContext extends InstructionStaticContext{
          if(!outputDir.isDirectory()){
            outputDir.mkdir();
          }
-         SimpleDateFormat dateFormat = new SimpleDateFormat("dd_MM_yy_HH_mm");
-         Date date = new Date();
-         String formattedDate = dateFormat.format(date);
 
-         String outputFileName = "callsite_to_id" + "_" + formattedDate + ".csv";
+         String outputFileName = "callsite_to_id.csv";
          File outputFile = new File(outputDir, outputFileName);
          try{
            outputFile.createNewFile();
