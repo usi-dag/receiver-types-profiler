@@ -1,5 +1,6 @@
 import re
 import csv
+import json
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
 from typing import List, Dict
@@ -39,10 +40,11 @@ def main():
     out.mkdir(exist_ok=True)
     callsite_id = 0
     callsite_to_id = {}
+    callsite_to_red = {}
     for f in result_files:
         callsites = extract_callsite_information(f)
         for callsite in callsites:
-            c, i = extract_compilation_decompilation(callsite)
+            c, i, id_was_decompiled = extract_compilation_decompilation(callsite)
             # NOTE: this mapping between callsite and id is necessary since the callsite might exceed
             # the limit of a valid file name length on linux
             callsite_to_id[callsite.callsite] = callsite_id
@@ -58,6 +60,9 @@ def main():
             )
             max_inversion_frequency = inversions_to_count.get(most_frequent_inversion)
             comp_id_to_count = number_of_windows_before_decompilation(callsite)
+            id_to_sub_time = compute_suboptimal_time(
+                comp_id_to_count, id_was_decompiled, callsite.window_size
+            )
             if len(comp_id_to_count) > 0:
                 average_inversions_before_decompilations = reduce(
                     lambda a, b: a + b, comp_id_to_count.values(), 0
@@ -72,6 +77,7 @@ def main():
                 "decompilations": len(callsite.decompilations()),
                 "changes after compilation": len(c),
                 "inversions after compilation": len(i),
+                "total suboptimal time": sum(id_to_sub_time.values()),
                 "most frequent oscillation": str(most_frequent_oscillation),
                 "most frequent oscillation value": max_oscillation_frequency,
                 "most frequent inversion": str(most_frequent_inversion),
@@ -79,9 +85,11 @@ def main():
                 "average_inversions_before_decompilation": average_inversions_before_decompilations,
             }
             compile_id_to_receiver_count = find_receiver_reduction(raw)
-            save_receiver_reduction(
+            rcd = save_receiver_reduction(
                 compile_id_to_receiver_count, out, callsite_to_id[callsite.callsite]
             )
+            callsite_to_red[callsite_to_id[callsite.callsite]] = rcd
+            pass
     df = pd.DataFrame(statistics)
     df = df.T
     df = df.reset_index()
@@ -104,25 +112,42 @@ def main():
         writer.writerow(["key", "value"])
         for key, value in callsite_to_id.items():
             writer.writerow([key, value])
+
+    reduction_folder = out.joinpath("reduction")
+    if not reduction_folder.is_dir():
+        reduction_folder.mkdir()
+    with open(out.joinpath("reduction.json"), "w") as f:
+        json.dump(callsite_to_red, f)
     return
+
+
+def compute_suboptimal_time(id_to_count, id_was_decompiled, window_size):
+    # The time is given in microseconds.
+    id_to_estimated_suboptimal_time = {}
+    for k in id_was_decompiled.keys():
+        if k not in id_to_count:
+            continue
+        estimated_suboptimal_time = id_to_count[k] * window_size
+        id_to_estimated_suboptimal_time[k] = estimated_suboptimal_time
+    return id_to_estimated_suboptimal_time
 
 
 def save_receiver_reduction(compile_id_to_receiver_count, out, callsite):
     if not compile_id_to_receiver_count:
         return
-    reduction_folder = out.joinpath("reduction")
-    if not reduction_folder.is_dir():
-        reduction_folder.mkdir()
+    # reduction_folder = out.joinpath("reduction")
+    # if not reduction_folder.is_dir():
+    #     reduction_folder.mkdir()
 
     receiver_count_data = {}
     for k, v in compile_id_to_receiver_count.items():
         before, after = v
         receiver_count_data[f"{k} - before"] = len(before)
         receiver_count_data[f"{k} - after"] = len(after)
-    df = pd.DataFrame(receiver_count_data, index=[0])
-    callsite_output_csv = reduction_folder.joinpath(f"reduction_{callsite}.csv")
-    df.to_csv(callsite_output_csv)
-    return
+    # df = pd.DataFrame(receiver_count_data, index=[0])
+    # callsite_output_csv = reduction_folder.joinpath(f"reduction_{callsite}.csv")
+    # df.to_csv(callsite_output_csv)
+    return receiver_count_data
 
 
 def save_oscillations(oscillations, output_folder, callsite):
@@ -325,6 +350,7 @@ class CallSite:
     changes: List[str]
     inversions: List[str]
     raw: List[str]
+    window_size: float
 
     def compilations(self) -> List[str]:
         return [e for e in self.changes if e.strip().startswith("Compilation")]
@@ -342,12 +368,15 @@ def extract_callsite_information(f: Path) -> List[CallSite]:
     processing_type = "changes"
 
     callsites = []
+    window_size = 0
     for line in handle:
         if line.startswith("Callsite"):
             callsite = line.split(":")[1].strip()
             if current_callsite:
                 # save callsite information
-                callsites.append(CallSite(current_callsite, changes, inversions, raw))
+                callsites.append(
+                    CallSite(current_callsite, changes, inversions, raw, window_size)
+                )
                 processing_type = "changes"
                 changes = []
                 inversions = []
@@ -355,6 +384,7 @@ def extract_callsite_information(f: Path) -> List[CallSite]:
                 pass
             current_callsite = callsite
         elif line.strip().startswith("Changes"):
+            window_size = float(line.split("size = ")[1].replace("]:", "").strip())
             processing_type = "changes"
         elif line.strip().startswith("Inversions"):
             processing_type = "inversions"
@@ -370,13 +400,16 @@ def extract_callsite_information(f: Path) -> List[CallSite]:
                     raw.append(line)
 
     if current_callsite:
-        callsites.append(CallSite(current_callsite, changes, inversions, raw))
+        callsites.append(
+            CallSite(current_callsite, changes, inversions, raw, window_size)
+        )
     return callsites
 
 
 def extract_compilation_decompilation(callsite: CallSite):
     compile_id_to_changes = defaultdict(list)
     last_id = "interpreter"
+    compile_id_was_decompiled = {}
     for el in callsite.changes:
         if el.strip().startswith("Compilation"):
             matches = re.findall(r"id = \d+", el)
@@ -385,6 +418,7 @@ def extract_compilation_decompilation(callsite: CallSite):
         elif el.strip().startswith("Decompilation"):
             matches = re.findall(r"compile_id = \d+", el)
             id = matches[0].replace("compile_id = ", "")
+            compile_id_was_decompiled[id] = True
             if last_id == id:
                 last_id = "interpreter"
         else:
@@ -406,7 +440,7 @@ def extract_compilation_decompilation(callsite: CallSite):
             compile_id_to_inv[last_id].append(el)
     c = [e for k, v in compile_id_to_changes.items() for e in v if k != "interpreter"]
     i = [e for k, v in compile_id_to_inv.items() for e in v if k != "interpreter"]
-    return c, i
+    return c, i, compile_id_was_decompiled
 
 
 def number_of_windows_before_decompilation(callsite: CallSite) -> Dict[str, int]:
