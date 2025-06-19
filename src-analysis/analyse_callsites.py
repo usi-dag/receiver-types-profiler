@@ -106,7 +106,7 @@ def main():
     normalized_df.to_csv(normalized_csv)
     df = df.sort_values("inversions after compilation", ascending=False)
     df.to_csv(out.joinpath(f"{args.name}_statistics.csv"))
-    # save_plots(df, out, args.name)
+    save_plots(df, out, args.name)
     with open(out.joinpath("callside_to_id.csv"), "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["key", "value"])
@@ -235,10 +235,10 @@ def find_oscillations(i: List[str]):
         i1 = inversions[i]
         i2 = inversions[i + 1]
         oscillations[(i1, i2)] += 1
-    for i in range(1, len(inversions) - 1):
-        i1 = inversions[i]
-        i2 = inversions[i + 1]
-        oscillations[(i1, i2)] += 1
+    # for i in range(1, len(inversions) - 1):
+    #     i1 = inversions[i]
+    #     i2 = inversions[i + 1]
+    #     oscillations[(i1, i2)] += 1
     return oscillations, inversion_to_count
 
 
@@ -291,8 +291,8 @@ def save_plots(df: pd.DataFrame, output_folder: Path, name: str):
             "average_inversions_before_decompilation",
             "most frequent inversion value",
             "most frequent oscillation value",
-            "inversions after compilation",
-            "changes after compilation",
+            # "inversions after compilation",
+            # "changes after compilation",
         ]
     ]
     for column in columns:
@@ -325,7 +325,9 @@ def save_plots(df: pd.DataFrame, output_folder: Path, name: str):
             output_folder.joinpath(f"{name}_{column.replace(' ', '_')}_scatter.png")
         )
         plt.close()
+    # boxplot
     for column in columns:
+        # print(column)
         cleaned = df[df[column] > 0]
         color = mpl.cm.inferno_r(np.linspace(0.4, 0.8, len(cleaned)))
         cleaned[column] = cleaned[column].astype(int)
@@ -403,7 +405,71 @@ def extract_callsite_information(f: Path) -> List[CallSite]:
         callsites.append(
             CallSite(current_callsite, changes, inversions, raw, window_size)
         )
+    callsites = clean_up_inversions(callsites)
     return callsites
+
+
+def clean_up_inversions(callsites: List[CallSite]):
+    new_callsites = []
+    for callsite in callsites:
+        i = 0
+        inv = []
+        while i < len(callsite.inversions):
+            line = callsite.inversions[i]
+            if line.strip().startswith("Compilation") or line.strip().startswith(
+                "Decompilation"
+            ):
+                inv.append(line)
+                i += 1
+                continue
+            f = callsite.inversions[i + 1]
+            s = callsite.inversions[i + 2]
+
+            first_window_elements = [
+                (el.split(": ")[0].strip(), float(el.split(": ")[1].strip()))
+                for el in f.replace("First Window: ", "").split(", ")
+            ]
+            second_window_elements = [
+                (el.split(": ")[0].strip(), float(el.split(": ")[1].strip()))
+                for el in s.replace("Second Window: ", "").split(", ")
+            ]
+            sf = sorted(first_window_elements, key=lambda e: e[1], reverse=True)
+            ss = sorted(second_window_elements, key=lambda e: e[1], reverse=True)
+            top_elements = []
+            top_elements.append(sf[0])
+            if ss[0] not in top_elements:
+                top_elements.append(ss[0])
+            if sf[1] not in top_elements:
+                top_elements.append(sf[1])
+            if ss[1] not in top_elements:
+                top_elements.append(ss[1])
+            top_elements = top_elements[:2]
+            top_elements = [e[0] for e in top_elements]
+            first_window_elements = [
+                e for e in first_window_elements if e[0] in top_elements
+            ]
+            second_window_elements = [
+                e for e in second_window_elements if e[0] in top_elements
+            ]
+            fw = [f"{e[0]}: {e[1]}" for e in first_window_elements]
+            sw = [f"{e[0]}: {e[1]}" for e in second_window_elements]
+            f = f"        First Window: {', '.join(fw)}\n"
+            s = f"        Second Window: {', '.join(sw)}\n"
+            inv.append(line)
+            inv.append(f)
+            inv.append(s)
+            i += 3
+        new_callsites.append(
+            CallSite(
+                callsite.callsite,
+                callsite.changes,
+                inv,
+                callsite.raw,
+                callsite.window_size,
+            )
+        )
+
+    return new_callsites
 
 
 def extract_compilation_decompilation(callsite: CallSite):
