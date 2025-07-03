@@ -131,7 +131,7 @@ public class App {
             System.err.println("Couldn't read binary file: " + cf.getAbsolutePath());
             return true;
         }
-        Map<Long, PartitionedWindows> cidToWindows = null;
+        Map<Pair<Long, Long>, PartitionedWindows> cidToWindows = null;
         try {
             cidToWindows = analyzeSortedFile(maybeSortedFile.get(), arguments.delta, idToClassName);
         } catch (IOException e) {
@@ -144,8 +144,9 @@ public class App {
         if (resFile.exists()) {
             resFile.delete();
         }
-        for(Map.Entry<Long, PartitionedWindows> entry: cidToWindows.entrySet()){
-            String callsite = idToCallsite.get(entry.getKey());
+        for(Map.Entry<Pair<Long, Long>, PartitionedWindows> entry: cidToWindows.entrySet()){
+            Pair<Long, Long> ccu = entry.getKey();
+            String callsite = idToCallsite.get(ccu.first);
             if (callsite == null) {
                 System.err.println("Couldn't reconstruct callsite for file " + cf.getAbsolutePath());
                 System.exit(1);
@@ -170,7 +171,7 @@ public class App {
             if (changes.isEmpty() && inversions.isEmpty()) {
                 continue;
             }
-            StringBuilder res = formatAnalysisResult(callsite, changes, inversions, windowsInformation, percentageWindows.start, arguments.delta);
+            StringBuilder res = formatAnalysisResult(callsite, ccu.second, changes, inversions, windowsInformation, percentageWindows.start, arguments.delta);
             // System.out.println(res);
             try {
                 resFile.createNewFile();
@@ -182,23 +183,28 @@ public class App {
         return false;
     }
 
-    static Map<Long, PartitionedWindows> analyzeSortedFile(File sortedFile, long delta, Map<Long, String> idToClass) throws FileNotFoundException, IOException{
+    public record Pair<T, P>(T first, P second) {}
+
+    static Map<Pair<Long, Long>, PartitionedWindows> analyzeSortedFile(File sortedFile, long delta, Map<Long, String> idToClass) throws FileNotFoundException, IOException{
         try (BufferedReader br = new BufferedReader(new FileReader(sortedFile))) {
             String line;
-            Optional<Long> callsiteId = Optional.empty();
+            // Optional<Long> callsiteId = Optional.empty();
             Set<Long> classIds = new HashSet<>();
             long windowStart = 0;
             long end=0;
             long cid = -1;
-            Map<Long, PartitionedWindows> callsiteIdToWindows = new HashMap<>();
+            long compileId = -2;
+            Optional<Pair<Long, Long>> maybeCCU = Optional.empty();
+            Map<Pair<Long,Long>, PartitionedWindows> callsiteIdToWindows = new HashMap<>();
             List<Map<Long, Integer>> windows = new ArrayList<>();
             while ((line = br.readLine()) != null) {
                 String[] sl = line.split(" ");
                 cid = Long.parseLong(sl[0]);
-                long kid = Long.parseLong(sl[1]);
-                long time = Long.parseLong(sl[2]);
-                // A change between two callsite ids
-                if (callsiteId.isPresent() && callsiteId.get() != cid) {
+                compileId = Long.parseLong(sl[1]);
+                long kid = Long.parseLong(sl[2]);
+                long time = Long.parseLong(sl[3]);
+                // A change between two callsite id or compilation units
+                if (maybeCCU.isPresent() && (maybeCCU.get().first != cid || maybeCCU.get().second != compileId)) {
                     var partitionedWindows = windows.stream().map(m -> {
                         double tot = m.values().stream().mapToDouble(e -> e).sum();
                         
@@ -210,16 +216,19 @@ public class App {
                         return t;
                     }).toList();
                     PartitionedWindows pw = new PartitionedWindows(partitionedWindows, windowStart, end);
-                    callsiteIdToWindows.put(callsiteId.get(), pw);
+                    // callsiteIdToWindows.put(callsiteId.get(), pw);
+                    callsiteIdToWindows.put(maybeCCU.get(), pw);
                     windows.clear();
                     classIds.clear();
-                    callsiteId = Optional.of(cid);
+                    // callsiteId = Optional.of(cid);
+                    maybeCCU = Optional.of(new Pair<>(cid, compileId));
                     windowStart = time;
 
                 }
                 // First callsite encountered
-                if(callsiteId.isEmpty()){
-                    callsiteId = Optional.of(cid);
+                if(maybeCCU.isEmpty()){
+                    // callsiteId = Optional.of(cid);
+                    maybeCCU = Optional.of(new Pair<>(cid, compileId));
                     windowStart = time;
                 }
                 if(!idToClass.containsKey(kid)){
@@ -245,9 +254,9 @@ public class App {
                 }
                 return t;
             }).toList();
-            if(cid!=-1 && !partitionedWindows.isEmpty()){
+            if(cid !=-1 && !partitionedWindows.isEmpty()){
                 PartitionedWindows pw = new PartitionedWindows(partitionedWindows, windowStart, end);
-                callsiteIdToWindows.put(cid, pw);
+                callsiteIdToWindows.put(new Pair<>(cid, compileId), pw);
             }
             return callsiteIdToWindows;
         } catch (IOException e) {
@@ -490,8 +499,8 @@ public class App {
         return true;
     }
 
-    private static StringBuilder formatAnalysisResult(String cs, List<PrintInformation> changes, List<PrintInformation> inversions, List<PrintInformation> windowsInformation, long start, long delta) {
-        StringBuilder result = new StringBuilder(String.format("Callsite: %s\n", cs));
+    private static StringBuilder formatAnalysisResult(String cs, long compId, List<PrintInformation> changes, List<PrintInformation> inversions, List<PrintInformation> windowsInformation, long start, long delta) {
+        StringBuilder result = new StringBuilder(String.format("CCU [callsite=%s, compile_id=%d]\n", cs, compId));
         String indent = "    ";
         if (!changes.isEmpty()) {
             result.append(String.format("%sChanges[start time = %s, window size = %s]:\n", indent, start, delta));

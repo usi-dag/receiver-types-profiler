@@ -16,7 +16,7 @@ from functools import reduce
 def main():
     parser: ArgumentParser = ArgumentParser(
         "Analysis",
-        description="This script can be used to analyse the result of runnig the instrumentation and data digestion",
+        description="This script can be used to analyse the result of running the instrumentation and data digestion",
     )
     parser.add_argument(
         "--input-folder", dest="input_folder", type=Path, default=Path("./result/")
@@ -38,19 +38,20 @@ def main():
     statistics = {}
     out = output_folder.joinpath(args.name)
     out.mkdir(exist_ok=True)
-    callsite_id = 0
-    callsite_to_id = {}
-    callsite_to_red = {}
+    ccu_id = 0
+    ccu_to_id = {}
+    ccu_to_red = {}
     for f in result_files:
-        callsites = extract_callsite_information(f)
-        for callsite in callsites:
-            c, i, id_was_decompiled = extract_compilation_decompilation(callsite)
-            # NOTE: this mapping between callsite and id is necessary since the callsite might exceed
+        ccus = extract_ccus_information(f)
+        for ccu in ccus:
+            c, i, id_was_decompiled = extract_compilation_decompilation(ccu)
+            # NOTE: this mapping between ccu and id is necessary since the ccus might exceed
             # the limit of a valid file name length on linux
-            callsite_to_id[callsite.callsite] = callsite_id
-            callsite_id += 1
+            ccu_name = f"{ccu.callsite} - {ccu.cid}"
+            ccu_to_id[ccu_name] = ccu_id
+            ccu_id += 1
             oscillations, inversions_to_count = find_oscillations(i)
-            save_oscillations(oscillations, out, callsite_to_id[callsite.callsite])
+            save_oscillations(oscillations, out, ccu_to_id[ccu_name])
             most_frequent_oscillation = max(
                 oscillations, key=oscillations.get, default=()
             )
@@ -59,9 +60,9 @@ def main():
                 inversions_to_count, key=inversions_to_count.get, default=()
             )
             max_inversion_frequency = inversions_to_count.get(most_frequent_inversion)
-            comp_id_to_count = number_of_windows_before_decompilation(callsite)
+            comp_id_to_count = number_of_windows_before_decompilation(ccu)
             id_to_sub_time = compute_suboptimal_time(
-                comp_id_to_count, id_was_decompiled, callsite.window_size
+                comp_id_to_count, id_was_decompiled, ccu.window_size
             )
             if len(comp_id_to_count) > 0:
                 average_inversions_before_decompilations = reduce(
@@ -69,12 +70,12 @@ def main():
                 ) / len(comp_id_to_count)
             else:
                 average_inversions_before_decompilations = 0
-            raw = callsite.raw
-            statistics[callsite.callsite] = {
-                "changes": len(callsite.changes),
-                "inversions": len(callsite.inversions),
-                "compilations": len(callsite.compilations()),
-                "decompilations": len(callsite.decompilations()),
+            raw = ccu.raw
+            statistics[ccu_name] = {
+                "changes": len(ccu.changes),
+                "inversions": len(ccu.inversions),
+                "compilations": len(ccu.compilations()),
+                "decompilations": len(ccu.decompilations()),
                 "changes after compilation": len(c) / 3,
                 "inversions after compilation": len(i) / 3,
                 "total suboptimal time": sum(id_to_sub_time.values()),
@@ -86,9 +87,9 @@ def main():
             }
             compile_id_to_receiver_count = find_receiver_reduction(raw)
             rcd = save_receiver_reduction(
-                compile_id_to_receiver_count, out, callsite_to_id[callsite.callsite]
+                compile_id_to_receiver_count,
             )
-            callsite_to_red[callsite_to_id[callsite.callsite]] = rcd
+            ccu_to_red[ccu_to_id[ccu_name]] = rcd
             pass
     df = pd.DataFrame(statistics)
     df = df.T
@@ -107,17 +108,17 @@ def main():
     df = df.sort_values("inversions after compilation", ascending=False)
     df.to_csv(out.joinpath(f"{args.name}_statistics.csv"))
     save_plots(df, out, args.name)
-    with open(out.joinpath("callside_to_id.csv"), "w", newline="") as csvfile:
+    with open(out.joinpath("ccu_to_id.csv"), "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["key", "value"])
-        for key, value in callsite_to_id.items():
+        for key, value in ccu_to_id.items():
             writer.writerow([key, value])
 
     reduction_folder = out.joinpath("reduction")
     if not reduction_folder.is_dir():
         reduction_folder.mkdir()
     with open(out.joinpath("reduction.json"), "w") as f:
-        json.dump(callsite_to_red, f)
+        json.dump(ccu_to_red, f)
     return
 
 
@@ -132,32 +133,26 @@ def compute_suboptimal_time(id_to_count, id_was_decompiled, window_size):
     return id_to_estimated_suboptimal_time
 
 
-def save_receiver_reduction(compile_id_to_receiver_count, out, callsite):
+def save_receiver_reduction(compile_id_to_receiver_count):
     if not compile_id_to_receiver_count:
         return
-    # reduction_folder = out.joinpath("reduction")
-    # if not reduction_folder.is_dir():
-    #     reduction_folder.mkdir()
 
     receiver_count_data = {}
     for k, v in compile_id_to_receiver_count.items():
         before, after = v
         receiver_count_data[f"{k} - before"] = len(before)
         receiver_count_data[f"{k} - after"] = len(after)
-    # df = pd.DataFrame(receiver_count_data, index=[0])
-    # callsite_output_csv = reduction_folder.joinpath(f"reduction_{callsite}.csv")
-    # df.to_csv(callsite_output_csv)
     return receiver_count_data
 
 
-def save_oscillations(oscillations, output_folder, callsite):
+def save_oscillations(oscillations, output_folder, ccu_id):
     if not oscillations:
         return
     oscillation_folder = output_folder.joinpath("oscillations")
     if not oscillation_folder.is_dir():
         oscillation_folder.mkdir()
     df = pd.DataFrame(oscillations, index=[0, 1])
-    output_file = oscillation_folder.joinpath(f"oscillation_{callsite}.csv")
+    output_file = oscillation_folder.joinpath(f"oscillation_{ccu_id}.csv")
     df.to_csv(output_file)
     return
 
@@ -175,18 +170,18 @@ def find_receiver_reduction(raw: List[str]):
             before = current_receivers
             current_receivers = set()
             matches = re.findall(r"id = \d+", el)
-            id = matches[0].replace("id = ", "")
-            last_id = id
+            cid = matches[0].replace("id = ", "")
+            last_id = cid
         elif el.strip().startswith("Decompilation"):
             matches = re.findall(r"compile_id = \d+", el)
-            id = matches[0].replace("compile_id = ", "")
-            if id in compile_id_to_receiver_count:
+            cid = matches[0].replace("compile_id = ", "")
+            if cid in compile_id_to_receiver_count:
                 continue
             if last_id not in compile_id_to_receiver_count:
                 compile_id_to_receiver_count[last_id] = (before, current_receivers)
             # before = set()
 
-            if last_id == id:
+            if last_id == cid:
                 last_id = "interpreter"
                 before = set()
                 current_receivers = set()
@@ -298,7 +293,7 @@ def save_plots(df: pd.DataFrame, output_folder: Path, name: str):
     for column in columns:
         sorted = df.sort_values(by=column, ascending=False).head(30)
         color = mpl.cm.inferno_r(np.linspace(0.4, 0.8, len(sorted)))
-        p = sorted.plot.bar(
+        _ = sorted.plot.bar(
             x="id", y=column, figsize=(40, 20), legend=True, color=color
         )
         plt.title(f"{column.capitalize()} for {name}")
@@ -311,7 +306,7 @@ def save_plots(df: pd.DataFrame, output_folder: Path, name: str):
         cleaned = df[df[column] > 0]
         color = mpl.cm.inferno_r(np.linspace(0.4, 0.8, len(cleaned)))
         xticks = [] if len(cleaned) > 30 else cleaned["id"]
-        p = cleaned.plot.scatter(
+        _ = cleaned.plot.scatter(
             y=column,
             x="id",
             figsize=(30, 15),
@@ -330,8 +325,9 @@ def save_plots(df: pd.DataFrame, output_folder: Path, name: str):
         # print(column)
         cleaned = df[df[column] > 0]
         color = mpl.cm.inferno_r(np.linspace(0.4, 0.8, len(cleaned)))
+
         cleaned[column] = cleaned[column].astype(int)
-        p = cleaned.boxplot(column=column, grid=False)
+        _ = cleaned.boxplot(column=column, grid=False)
         plt.title(f"{column.capitalize()} for {name}")
         plt.savefig(
             output_folder.joinpath(f"{name}_{column.replace(' ', '_')}_boxplot.png")
@@ -347,8 +343,9 @@ def cohen_d(deap: List[float], random: List[float]):
 
 
 @dataclass
-class CallSite:
+class CCU:
     callsite: str
+    cid: int
     changes: List[str]
     inversions: List[str]
     raw: List[str]
@@ -361,23 +358,33 @@ class CallSite:
         return [e for e in self.changes if e.strip().startswith("Decompilation")]
 
 
-def extract_callsite_information(f: Path) -> List[CallSite]:
+def extract_ccus_information(f: Path) -> List[CCU]:
     handle = open(f, "r")
     current_callsite = ""
+    current_cid = 0
     changes = []
     inversions = []
     raw = []
     processing_type = "changes"
 
-    callsites = []
+    ccus = []
     window_size = 0
+    rx = r"CCU \[callsite=(?P<callsite>.*), compile_id=(?P<cid>.*)\]"
     for line in handle:
-        if line.startswith("Callsite"):
-            callsite = line.split(":")[1].strip()
+        if line.startswith("CCU"):
+            res = re.search(rx, line)
+            callsite = res["callsite"]
+            cid = res["cid"]
             if current_callsite:
-                # save callsite information
-                callsites.append(
-                    CallSite(current_callsite, changes, inversions, raw, window_size)
+                ccus.append(
+                    CCU(
+                        current_callsite,
+                        current_cid,
+                        changes,
+                        inversions,
+                        raw,
+                        window_size,
+                    )
                 )
                 processing_type = "changes"
                 changes = []
@@ -385,6 +392,7 @@ def extract_callsite_information(f: Path) -> List[CallSite]:
                 raw = []
                 pass
             current_callsite = callsite
+            current_cid = int(cid)
         elif line.strip().startswith("Changes"):
             window_size = float(line.split("size = ")[1].replace("]:", "").strip())
             processing_type = "changes"
@@ -402,28 +410,28 @@ def extract_callsite_information(f: Path) -> List[CallSite]:
                     raw.append(line)
 
     if current_callsite:
-        callsites.append(
-            CallSite(current_callsite, changes, inversions, raw, window_size)
+        ccus.append(
+            CCU(current_callsite, current_cid, changes, inversions, raw, window_size)
         )
-    callsites = clean_up_inversions(callsites)
-    return callsites
+    ccus = clean_up_inversions(ccus)
+    return ccus
 
 
-def clean_up_inversions(callsites: List[CallSite]):
-    new_callsites = []
-    for callsite in callsites:
+def clean_up_inversions(ccus: List[CCU]):
+    new_ccus = []
+    for ccu in ccus:
         i = 0
         inv = []
-        while i < len(callsite.inversions):
-            line = callsite.inversions[i]
+        while i < len(ccu.inversions):
+            line = ccu.inversions[i]
             if line.strip().startswith("Compilation") or line.strip().startswith(
                 "Decompilation"
             ):
                 inv.append(line)
                 i += 1
                 continue
-            f = callsite.inversions[i + 1]
-            s = callsite.inversions[i + 2]
+            f = ccu.inversions[i + 1]
+            s = ccu.inversions[i + 2]
 
             first_window_elements = [
                 (el.split(": ")[0].strip(), float(el.split(": ")[1].strip()))
@@ -459,72 +467,65 @@ def clean_up_inversions(callsites: List[CallSite]):
             inv.append(f)
             inv.append(s)
             i += 3
-        new_callsites.append(
-            CallSite(
-                callsite.callsite,
-                callsite.changes,
+        new_ccus.append(
+            CCU(
+                ccu.callsite,
+                ccu.cid,
+                ccu.changes,
                 inv,
-                callsite.raw,
-                callsite.window_size,
+                ccu.raw,
+                ccu.window_size,
             )
         )
 
-    return new_callsites
+    return new_ccus
 
 
-def extract_compilation_decompilation(callsite: CallSite):
-    compile_id_to_changes = defaultdict(list)
-    last_id = "interpreter"
-    compile_id_was_decompiled = {}
-    for el in callsite.changes:
-        if el.strip().startswith("Compilation"):
-            matches = re.findall(r"id = \d+", el)
-            id = matches[0].replace("id = ", "")
-            last_id = id
-        elif el.strip().startswith("Decompilation"):
-            matches = re.findall(r"compile_id = \d+", el)
-            id = matches[0].replace("compile_id = ", "")
-            compile_id_was_decompiled[id] = True
-            if last_id == id:
-                last_id = "interpreter"
-        else:
-            compile_id_to_changes[last_id].append(el)
-
-    compile_id_to_inv = defaultdict(list)
-    last_id = "interpreter"
-    for el in callsite.inversions:
-        if el.strip().startswith("Compilation"):
-            matches = re.findall(r"id = \d+", el)
-            id = matches[0].replace("id = ", "")
-            last_id = id
-        elif el.strip().startswith("Decompilation"):
-            matches = re.findall(r"compile_id = \d+", el)
-            id = matches[0].replace("compile_id = ", "")
-            if last_id == id:
-                last_id = "interpreter"
-        else:
-            compile_id_to_inv[last_id].append(el)
+def extract_compilation_decompilation(ccu: CCU):
+    compile_id_to_changes, compile_id_was_decompiled = compile_id_to_event(ccu.changes)
+    compile_id_to_inv, cid_was_decompiled = compile_id_to_event(ccu.inversions)
+    compile_id_was_decompiled.update(cid_was_decompiled)
     c = [e for k, v in compile_id_to_changes.items() for e in v if k != "interpreter"]
     i = [e for k, v in compile_id_to_inv.items() for e in v if k != "interpreter"]
     return c, i, compile_id_was_decompiled
 
 
-def number_of_windows_before_decompilation(callsite: CallSite) -> Dict[str, int]:
+def compile_id_to_event(events):
+    compile_id_to_inv = defaultdict(list)
+    last_id = "interpreter"
+    compile_id_was_decompiled = {}
+    for el in events:
+        if el.strip().startswith("Compilation"):
+            matches = re.findall(r"id = \d+", el)
+            cid = matches[0].replace("id = ", "")
+            last_id = cid
+        elif el.strip().startswith("Decompilation"):
+            matches = re.findall(r"compile_id = \d+", el)
+            cid = matches[0].replace("compile_id = ", "")
+            compile_id_was_decompiled[cid] = True
+            if last_id == cid:
+                last_id = "interpreter"
+        else:
+            compile_id_to_inv[last_id].append(el)
+    return compile_id_to_inv, compile_id_was_decompiled
+
+
+def number_of_windows_before_decompilation(ccu: CCU) -> Dict[str, int]:
     compile_id_to_inv_count = defaultdict(int)
     compile_id_to_inv = defaultdict(list)
     last_id = "interpreter"
-    for el in callsite.inversions:
+    for el in ccu.inversions:
         if el.strip().startswith("Compilation") and "kind = c2" in el:
             matches = re.findall(r"id = \d+", el)
-            id = matches[0].replace("id = ", "")
-            last_id = id
+            cid = matches[0].replace("id = ", "")
+            last_id = cid
         elif el.strip().startswith("Decompilation"):
             matches = re.findall(r"compile_id = \d+", el)
-            id = matches[0].replace("compile_id = ", "")
-            if id in compile_id_to_inv:
+            cid = matches[0].replace("compile_id = ", "")
+            if cid in compile_id_to_inv:
                 # the inversions are always reported as triplets of lines.
-                compile_id_to_inv_count[id] = len(compile_id_to_inv[id]) / 3
-            if last_id == id:
+                compile_id_to_inv_count[cid] = len(compile_id_to_inv[cid]) / 3
+            if last_id == cid:
                 last_id = "interpreter"
         else:
             compile_id_to_inv[last_id].append(el)

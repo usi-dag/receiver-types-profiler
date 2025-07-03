@@ -53,7 +53,8 @@ public class Instrumentation {
           mb = Profiler.getMemoryMappedFile();
           i = 0;
         }
-        i = Profiler.putInfo(mb, i, callsite, obj);
+        int cid = System.currentCompileId();
+        i = Profiler.putInfo(mb, i, callsite, obj, cid);
       }
       // NOTE: Putting this assignment inside the if statement above breaks everything.
       callsite = -1;

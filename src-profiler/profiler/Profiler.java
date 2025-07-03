@@ -60,16 +60,14 @@ public class Profiler{
       return null;
     }
 
-    public static int putInfo(MappedByteBuffer mb, int index, long callsite, Object obj){
-      // if(callsite == -1){
-      //   return index;
-      // }
+    public static int putInfo(MappedByteBuffer mb, int index, long callsite, Object obj, int cid){
       long time = System.nanoTime();
       long timeDiff = (time - Profiler.beginning)/1000;
       String targetClassName = obj.getClass().getName();
       long tid = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);
 
       long val = ((callsite) << 32) | (tid & 0xffffffffL);
+      mb.putLong(cid);
       mb.putLong(val);
       // mb.putInt((int) (callsite & 0xFFFFFFFFL));
       // mb.putInt((int) (tid & 0xFFFFFFFFL));
