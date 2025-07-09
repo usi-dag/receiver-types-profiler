@@ -137,6 +137,7 @@ public class App {
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+        maybeSortedFile.get().delete();
         assert cidToWindows != null;
 
         String callsiteFileNumber = cf.getName().replace("callsite_", "").replace(".txt", "");
