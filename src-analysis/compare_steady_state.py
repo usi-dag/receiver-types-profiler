@@ -31,6 +31,7 @@ def main():
     normal_run_data = [(el[0], get_duration_uptime(el[1])) for el in n]
     tweaked_run_data = [(el[0], get_duration_uptime(el[1])) for el in t]
     normal_run_data = sorted(normal_run_data, key=lambda el: el[0])
+    normal_run_data = [el for el in normal_run_data if el[0] != "gauss-mix"]
     tweaked_run_data = sorted(tweaked_run_data, key=lambda el: el[0])
     assert len(tweaked_run_data) == len(normal_run_data)
     statistics = {}
@@ -39,23 +40,41 @@ def main():
         normal_uptime = normals[1][1]
         nd_mean = np.mean(normal_durations)
         np_mean = np.mean(normal_uptime)
+        nd_std = np.std(normal_durations)
+        np_std = np.std(normal_uptime)
         tweaked_durations = tweakeds[1][0]
         tweaked_uptime = tweakeds[1][1]
         td_mean = np.mean(tweaked_durations)
         tp_mean = np.mean(tweaked_uptime)
+        td_std = np.std(tweaked_durations)
+        tp_std = np.std(tweaked_uptime)
+        duration_percentage_dif = 100 - (td_mean / nd_mean) * 100
+        uptime_percentage_dif = 100 - (tp_mean / np_mean) * 100
+        # TODO: add percentage difference
+        #       and maybe the statistical stuff.
         res_durations = stats.ttest_rel(normal_durations, tweaked_durations)
         res_uptime = stats.ttest_rel(normal_uptime, tweaked_uptime)
         statistics[normals[0]] = {
             "nd_mean": nd_mean,
             "np_mean": np_mean,
+            "nd_std": nd_std,
+            "np_std": np_std,
             "td_mean": td_mean,
             "tp_mean": tp_mean,
+            "td_std": td_std,
+            "tp_std": tp_std,
             "durations p-value": res_durations.pvalue,
             "uptime p-value": res_uptime.pvalue,
+            "duration percentage difference": duration_percentage_dif,
+            "uptime percentage difference": uptime_percentage_dif,
         }
     df = pd.DataFrame(statistics)
+    df = df.T.sort_values("duration percentage difference", ascending=False)
+    df_sig = df[df["durations p-value"] < 0.05]
     stats_file = output_folder.joinpath("statistics.csv")
+    stats_file_sig = output_folder.joinpath("statistics_sig.csv")
     df.to_csv(stats_file)
+    df_sig.to_csv(stats_file_sig)
     return
 
 
