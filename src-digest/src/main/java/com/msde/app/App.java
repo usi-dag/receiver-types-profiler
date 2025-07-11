@@ -2,7 +2,6 @@ package com.msde.app;
 
 import java.io.*;
 import java.nio.file.Files;
-import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -172,14 +171,7 @@ public class App {
             if (changes.isEmpty() && inversions.isEmpty()) {
                 continue;
             }
-            StringBuilder res = formatAnalysisResult(callsite, ccu.second, changes, inversions, windowsInformation, percentageWindows.start, arguments.delta);
-            // System.out.println(res);
-            try {
-                resFile.createNewFile();
-                Files.writeString(resFile.toPath(), res.toString(), StandardOpenOption.APPEND);
-            } catch (IOException e) {
-                System.err.println(e.getMessage());
-            }
+            saveResultTofile(resFile, callsite, ccu.second, changes, inversions, windowsInformation, percentageWindows.start, arguments.delta);
         }
         return false;
     }
@@ -500,35 +492,53 @@ public class App {
         return true;
     }
 
-    private static StringBuilder formatAnalysisResult(String cs, long compId, List<PrintInformation> changes, List<PrintInformation> inversions, List<PrintInformation> windowsInformation, long start, long delta) {
-        StringBuilder result = new StringBuilder(String.format("CCU [callsite=%s, compile_id=%d]\n", cs, compId));
+    private static void saveResultTofile(File resFile, String callsite, long compId, List<PrintInformation> changes, List<PrintInformation> inversions, List<PrintInformation> raw, long start, long delta){
         String indent = "    ";
-        if (!changes.isEmpty()) {
-            result.append(String.format("%sChanges[start time = %s, window size = %s]:\n", indent, start, delta));
-            for (PrintInformation change : changes) {
-                for(String s: change.formatInformation()){
-                    result.append(String.format("%s%s", indent.repeat(2), s));
+        try {
+            FileWriter fileReader = new FileWriter(resFile, true);
+            BufferedWriter bufferedWriter = new BufferedWriter(fileReader);
+            
+            String first_line = String.format("CCU [callsite=%s, compile_id=%d]\n", callsite, compId);
+            bufferedWriter.append(first_line);
+            if (!changes.isEmpty()) {
+                String header = String.format("%sChanges[start time = %s, window size = %s]:\n", indent, start, delta);
+                bufferedWriter.append(header);
+                for (PrintInformation change : changes) {
+                    for(String s: change.formatInformation()){
+                        String line = String.format("%s%s", indent.repeat(2), s);
+                        bufferedWriter.append(line);
+                    }
                 }
             }
-        }
-        if (inversions.isEmpty()) {
-            return result;
-        }
-        result.append(String.format("%sInversions[start time = %s, window size = %s]:\n", indent, start, delta));
-        for (PrintInformation inversion : inversions) {
-            for(String s: inversion.formatInformation()){
-               result.append(String.format("%s%s", indent.repeat(2), s));
-            }
-        }
 
-        result.append(String.format("%sRawWindowInformation[start time = %s, window size = %s]:\n", indent, start, delta));
-        for (PrintInformation wi: windowsInformation) {
-            for(String s: wi.formatInformation()){
-               result.append(String.format("%s%s", indent.repeat(2), s));
+            
+            if (inversions.isEmpty()) {
+                bufferedWriter.close();
+                return;
             }
-        }
-        return result;
 
+            String header = String.format("%sInversions[start time = %s, window size = %s]:\n", indent, start, delta);
+            bufferedWriter.append(header);
+            for (PrintInformation inversion : inversions) {
+                for(String s: inversion.formatInformation()){
+                   String line = String.format("%s%s", indent.repeat(2), s);
+                   bufferedWriter.append(line);
+                }
+            }
+
+            
+            header = String.format("%sRawWindowInformation[start time = %s, window size = %s]:\n", indent, start, delta);
+            bufferedWriter.append(header);
+            for (PrintInformation wi: raw) {
+                for(String s: wi.formatInformation()){
+                   String line = String.format("%s%s", indent.repeat(2), s);
+                    bufferedWriter.append(line);
+                }
+            }
+
+            bufferedWriter.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
-
 }
