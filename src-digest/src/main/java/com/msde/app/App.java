@@ -1,12 +1,7 @@
 package com.msde.app;
 
-import java.io.BufferedInputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.nio.ByteBuffer;
+import java.io.*;
 import java.nio.file.Files;
-import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -130,28 +125,34 @@ public class App {
     }
 
     private static boolean threadAnalysis(File resultFolder, Map<Long, String> idToCallsite, Map<Long, String> idToClassName, Args arguments, XmlParser parser, Long startTime, File cf, Long startTimeDiff) {
-        Optional<LongList> maybeInfo = readBinary(cf);
-        // System.out.println("finished reading binary");
-        if (maybeInfo.isEmpty()) {
+        Optional<File> maybeSortedFile = BinaryFileSorter.createSortedFile(cf);
+        if(maybeSortedFile.isEmpty()){
             System.err.println("Couldn't read binary file: " + cf.getAbsolutePath());
             return true;
         }
-        LongList info = maybeInfo.get();
+        Map<Pair<Long, Long>, PartitionedWindows> cidToWindows = null;
+        try {
+            cidToWindows = analyzeSortedFile(maybeSortedFile.get(), arguments.delta, idToClassName);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+        maybeSortedFile.get().delete();
+        assert cidToWindows != null;
+
         String callsiteFileNumber = cf.getName().replace("callsite_", "").replace(".txt", "");
         File resFile = new File(resultFolder, String.format("result_%03d.txt", Integer.parseInt(callsiteFileNumber)));
         if (resFile.exists()) {
             resFile.delete();
         }
-        // i++;
-        Map<String, Map<Long, LongList>> callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
-        for (var entry : callsiteInfo.entrySet()) {
-            String callsite = entry.getKey();
+        for(Map.Entry<Pair<Long, Long>, PartitionedWindows> entry: cidToWindows.entrySet()){
+            Pair<Long, Long> ccu = entry.getKey();
+            String callsite = idToCallsite.get(ccu.first);
             if (callsite == null) {
                 System.err.println("Couldn't reconstruct callsite for file " + cf.getAbsolutePath());
                 System.exit(1);
             }
             // System.out.println("Callsite: " + callsite);
-            var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
+            PartitionedWindows percentageWindows = entry.getValue();
             String methodDescriptor = extractMethodDescriptor(callsite);
             // NOTE: compilations are given in milliseconds from the start time while
             // the instrumentation keeps the times in microseconds.
@@ -170,17 +171,92 @@ public class App {
             if (changes.isEmpty() && inversions.isEmpty()) {
                 continue;
             }
-            StringBuilder res = formatAnalysisResult(callsite, changes, inversions, windowsInformation, percentageWindows.start, arguments.delta);
-            // System.out.println(res);
-            try {
-                resFile.createNewFile();
-                Files.writeString(resFile.toPath(), res.toString(), StandardOpenOption.APPEND);
-            } catch (IOException e) {
-                System.err.println(e.getMessage());
-            }
+            saveResultTofile(resFile, callsite, ccu.second, changes, inversions, windowsInformation, percentageWindows.start, arguments.delta);
         }
         return false;
     }
+
+    public record Pair<T, P>(T first, P second) {}
+
+    static Map<Pair<Long, Long>, PartitionedWindows> analyzeSortedFile(File sortedFile, long delta, Map<Long, String> idToClass) throws FileNotFoundException, IOException{
+        try (BufferedReader br = new BufferedReader(new FileReader(sortedFile))) {
+            String line;
+            // Optional<Long> callsiteId = Optional.empty();
+            Set<Long> classIds = new HashSet<>();
+            long windowStart = 0;
+            long end=0;
+            long cid = -1;
+            long compileId = -2;
+            Optional<Pair<Long, Long>> maybeCCU = Optional.empty();
+            Map<Pair<Long,Long>, PartitionedWindows> callsiteIdToWindows = new HashMap<>();
+            List<Map<Long, Integer>> windows = new ArrayList<>();
+            while ((line = br.readLine()) != null) {
+                String[] sl = line.split(" ");
+                cid = Long.parseLong(sl[0]);
+                compileId = Long.parseLong(sl[1]);
+                long kid = Long.parseLong(sl[2]);
+                long time = Long.parseLong(sl[3]);
+                // A change between two callsite id or compilation units
+                if (maybeCCU.isPresent() && (maybeCCU.get().first != cid || maybeCCU.get().second != compileId)) {
+                    var partitionedWindows = windows.stream().map(m -> {
+                        double tot = m.values().stream().mapToDouble(e -> e).sum();
+                        
+                        Map<Long, Double> t =  m.entrySet().stream().map(e -> new AbstractMap.SimpleEntry<>(e.getKey(), tot == 0 ? 0 : e.getValue() / tot))
+                                .collect(Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
+                        for(Long entry: classIds){
+                            t.putIfAbsent(entry, 0.0);
+                        }
+                        return t;
+                    }).toList();
+                    PartitionedWindows pw = new PartitionedWindows(partitionedWindows, windowStart, end);
+                    // callsiteIdToWindows.put(callsiteId.get(), pw);
+                    callsiteIdToWindows.put(maybeCCU.get(), pw);
+                    windows.clear();
+                    classIds.clear();
+                    // callsiteId = Optional.of(cid);
+                    maybeCCU = Optional.of(new Pair<>(cid, compileId));
+                    windowStart = time;
+
+                }
+                // First callsite encountered
+                if(maybeCCU.isEmpty()){
+                    // callsiteId = Optional.of(cid);
+                    maybeCCU = Optional.of(new Pair<>(cid, compileId));
+                    windowStart = time;
+                }
+                if(!idToClass.containsKey(kid)){
+                    continue;
+                }
+                end = time;
+                classIds.add(kid);
+                int index = (int) ((time-windowStart)/delta);
+                if(index >= windows.size()){
+                      for(int j = windows.size(); j<=index; j++){
+                         windows.add(new HashMap<>());
+                     }
+                 }
+                 windows.get(index).compute(kid, (k, v) -> v == null ? 1: v+1);
+            }
+            // add the last callsite
+            var partitionedWindows = windows.stream().map(m -> {
+                double tot = m.values().stream().mapToDouble(e -> e).sum();
+                Map<Long, Double> t =  m.entrySet().stream().map(e -> new AbstractMap.SimpleEntry<>(e.getKey(), tot == 0 ? 0 : e.getValue() / tot))
+                        .collect(Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
+                for(Long entry: classIds){
+                    t.putIfAbsent(entry, 0.0);
+                }
+                return t;
+            }).toList();
+            if(cid !=-1 && !partitionedWindows.isEmpty()){
+                PartitionedWindows pw = new PartitionedWindows(partitionedWindows, windowStart, end);
+                callsiteIdToWindows.put(new Pair<>(cid, compileId), pw);
+            }
+            return callsiteIdToWindows;
+        } catch (IOException e) {
+            System.out.println("IOException in try block =>" + e.getMessage());
+        }
+        return null;
+   }
 
     static String extractMethodDescriptor(String callsite){
         String methodDescriptor = callsite.split(" ")[1];
@@ -233,107 +309,10 @@ public class App {
         return 0L;
     }
 
-    private static Optional<LongList> readBinary(File binaryFile) {
-        try {
-            // byte[] bytes = Files.readAllBytes(binaryFile.toPath());
-            ByteBuffer.allocate(Long.BYTES).getLong();
-            LongList l = new LongList();
-            try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(binaryFile.toPath().toString()))) {
-                byte[] bytes = new byte[128*1024*1024];
-                int len;
-                outer: while ((len = in.read(bytes)) != -1) {
-                    for(int i=0; i<len; i+= 16){
-                        byte[] cs = new byte[8];
-                        cs[4] = bytes[i];
-                        cs[5] = bytes[i + 1];
-                        cs[6] = bytes[i + 2];
-                        cs[7] = bytes[i + 3];
-                        long callsiteId = ByteBuffer.wrap(cs).getLong();
-                        cs[4] = bytes[i + 4];
-                        cs[5] = bytes[i + 5];
-                        cs[6] = bytes[i + 6];
-                        cs[7] = bytes[i + 7];
-                        long classNameId = ByteBuffer.wrap(cs).getLong();
-                        long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
-                        if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
-                            break outer;
-                        }
-                        l.add(callsiteId);
-                        l.add(classNameId);
-                        l.add(timeDiff);
-                    }
-                }
-            }
-            return Optional.of(l);
-        } catch (IOException e) {
-            System.err.println(e.getMessage());
-        }
-        return Optional.empty();
-    }
-
-
-    public static Map<String, Map<Long, LongList>> reconstructCallsiteInfo(LongList info, Map<Long, String> idToCallsite, Map<Long, String> idToClassName) {
-        /**
-        Return a map mapping from a callsite to a map which maps from class names to a list of invokation times for object of that class.
-        Ex: '0 java/lang/SomeStuff.someMethod()':
-                'ClassA': [0, 1, 2, 3]
-                'ClassB': [0, 1, 2, 3]
-                ...
-        NOTE: it might be better to keep the classids instead of getting the actual classnames to save ram.
-        **/
-        Map<String, Map<Long, LongList>> callsiteToInfo = new HashMap<>();
-        for (int i = 0; i < info.size(); i += 3) {
-            long csid = info.get(i);
-            long cnid = info.get(i + 1);
-            long timediff = info.get(i + 2);
-            String callsite = idToCallsite.get(csid);
-            String className = idToClassName.get(cnid);
-            if(className == null){
-                System.out.println(String.format("WARNING: ---------------- cnid is: %d", cnid));
-                continue;
-            }
-            callsiteToInfo.computeIfAbsent(callsite, k -> new HashMap<>()).computeIfAbsent(cnid, k -> new LongList()).add(timediff);
-        }
-        return callsiteToInfo;
-
-    }
 
     record PartitionedWindows(List<Map<Long, Double>> windows, long start, long end){}
 
     // record PartitionedWindow(Map<String, Double> value, int windowIndex){}
-
-    private static PartitionedWindows analyseCallsite(Map<Long, LongList> info, final long timeFrame) {
-        // returns a list of windows which shows the percentages of the calls on each receiver type in that window
-        // WindowStart and end are in microseconds.
-        long windowStart = info.values().stream().flatMapToLong(LongList::stream).min().orElse(0);
-        long end = info.values().stream().flatMapToLong(LongList::stream).max().orElse(Long.MAX_VALUE);
-        long nIteration = ((end-windowStart)/timeFrame) + 1;
-        // List of receiver type to list of time deltas of method invocation.
-        List<Map<Long, List<Long>>> windows = new ArrayList<>();
-        for(int j = 0; j<nIteration; j++){
-            windows.add(new HashMap<>());            
-        }
-        for (Map.Entry<Long, LongList> el : info.entrySet()) {
-            List<List<Long>> partitionedInfo = new ArrayList<>();
-            for(int j=0; j<nIteration; j++){
-                partitionedInfo.add(new ArrayList<>());
-            }
-            
-            for(Long l: el.getValue()){
-                int index = (int) ((l-windowStart)/timeFrame);
-                partitionedInfo.get(index).add(l);
-            }
-            for(int j=0; j<partitionedInfo.size();j++){
-                windows.get(j).put(el.getKey(), partitionedInfo.get(j));
-            }
-        }
-        var partitionedWindows = windows.stream().map(m -> {
-            double tot = m.values().stream().mapToDouble(List::size).sum();
-            return m.entrySet().stream().map(e -> new AbstractMap.SimpleEntry<>(e.getKey(), tot == 0? 0: e.getValue().size() / tot))
-                    .collect(Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
-        }).toList();
-        return new PartitionedWindows(partitionedWindows, windowStart, end);
-    }
 
     private static List<PrintInformation> getRawWindowInformation(PartitionedWindows windows, final long window, final long startTime,
          List<Compilation> compilationTasks, List<Decompilation> decompilations, Map<Long, String> idToName) {
@@ -513,35 +492,53 @@ public class App {
         return true;
     }
 
-    private static StringBuilder formatAnalysisResult(String cs, List<PrintInformation> changes, List<PrintInformation> inversions, List<PrintInformation> windowsInformation, long start, long delta) {
-        StringBuilder result = new StringBuilder(String.format("Callsite: %s\n", cs));
+    private static void saveResultTofile(File resFile, String callsite, long compId, List<PrintInformation> changes, List<PrintInformation> inversions, List<PrintInformation> raw, long start, long delta){
         String indent = "    ";
-        if (!changes.isEmpty()) {
-            result.append(String.format("%sChanges[start time = %s, window size = %s]:\n", indent, start, delta));
-            for (PrintInformation change : changes) {
-                for(String s: change.formatInformation()){
-                    result.append(String.format("%s%s", indent.repeat(2), s));
+        try {
+            FileWriter fileReader = new FileWriter(resFile, true);
+            BufferedWriter bufferedWriter = new BufferedWriter(fileReader);
+            
+            String first_line = String.format("CCU [callsite=%s, compile_id=%d]\n", callsite, compId);
+            bufferedWriter.append(first_line);
+            if (!changes.isEmpty()) {
+                String header = String.format("%sChanges[start time = %s, window size = %s]:\n", indent, start, delta);
+                bufferedWriter.append(header);
+                for (PrintInformation change : changes) {
+                    for(String s: change.formatInformation()){
+                        String line = String.format("%s%s", indent.repeat(2), s);
+                        bufferedWriter.append(line);
+                    }
                 }
             }
-        }
-        if (inversions.isEmpty()) {
-            return result;
-        }
-        result.append(String.format("%sInversions[start time = %s, window size = %s]:\n", indent, start, delta));
-        for (PrintInformation inversion : inversions) {
-            for(String s: inversion.formatInformation()){
-               result.append(String.format("%s%s", indent.repeat(2), s));
-            }
-        }
 
-        result.append(String.format("%sRawWindowInformation[start time = %s, window size = %s]:\n", indent, start, delta));
-        for (PrintInformation wi: windowsInformation) {
-            for(String s: wi.formatInformation()){
-               result.append(String.format("%s%s", indent.repeat(2), s));
+            
+            if (inversions.isEmpty()) {
+                bufferedWriter.close();
+                return;
             }
-        }
-        return result;
 
+            String header = String.format("%sInversions[start time = %s, window size = %s]:\n", indent, start, delta);
+            bufferedWriter.append(header);
+            for (PrintInformation inversion : inversions) {
+                for(String s: inversion.formatInformation()){
+                   String line = String.format("%s%s", indent.repeat(2), s);
+                   bufferedWriter.append(line);
+                }
+            }
+
+            
+            header = String.format("%sRawWindowInformation[start time = %s, window size = %s]:\n", indent, start, delta);
+            bufferedWriter.append(header);
+            for (PrintInformation wi: raw) {
+                for(String s: wi.formatInformation()){
+                   String line = String.format("%s%s", indent.repeat(2), s);
+                    bufferedWriter.append(line);
+                }
+            }
+
+            bufferedWriter.close();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
-
 }

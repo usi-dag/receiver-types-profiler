@@ -60,16 +60,14 @@ public class Profiler{
       return null;
     }
 
-    public static int putInfo(MappedByteBuffer mb, int index, long callsite, Object obj){
-      // if(callsite == -1){
-      //   return index;
-      // }
+    public static int putInfo(MappedByteBuffer mb, int index, long callsite, Object obj, int cid){
       long time = System.nanoTime();
       long timeDiff = (time - Profiler.beginning)/1000;
       String targetClassName = obj.getClass().getName();
       long tid = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);
 
       long val = ((callsite) << 32) | (tid & 0xffffffffL);
+      mb.putLong(cid);
       mb.putLong(val);
       // mb.putInt((int) (callsite & 0xFFFFFFFFL));
       // mb.putInt((int) (tid & 0xFFFFFFFFL));
@@ -87,10 +85,7 @@ public class Profiler{
     }
 
     private static void saveClassNameMapping(){
-      SimpleDateFormat dateFormat = new SimpleDateFormat("dd_MM_yy_HH_mm");
-      Date date = new Date();
-      String formattedDate = dateFormat.format(date);
-      String outputFileName = "classNameMapping_" +  formattedDate + ".csv";
+      String outputFileName = "classNameMapping.csv";
       File outputFile = new File(outputDir, outputFileName);
       try{
         var res = outputFile.createNewFile();
@@ -108,10 +103,7 @@ public class Profiler{
     }
 
     private static void saveStartTime(){
-            SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MM-yy-HH-mm-ss");
-            Date date = new Date();
-            String formattedDate = dateFormat.format(date);
-            String outputFileName = "start_time_" + formattedDate + ".txt";
+            String outputFileName = "start_time.txt";
             File outputFile = new File(outputDir, outputFileName);
             try{
               var res = outputFile.createNewFile();

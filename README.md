@@ -1,6 +1,29 @@
 # Set up
-Java 21 is required and should be installed.
+
+## JDK
+This project needs a custom JDK version which include an intrinsic which allow to inspect the current compile id.
+Clone the jdk:
+
+```bash
+git clone https://github.com/JacobSalvi/jdk.git
+```
+Ensure to switch to the 'feature/get-current-compile-id' branch.
+```bash
+git clone feature/get-current-compile-id
+```
+Follow the instructions inside 'doc/building.md' for building the jvm.
+Set up the 'JAVA_HOME' to point to the custom jdk which has just been compiled.
+
+```bash
+export JAVA_HOME={CUSTOM_JDK_PATH}/build/{BUILD_TYPE}/jdk/bin/
+```
+
+
+## Java Build tools
 Both 'ant' and 'maven' should be installed.
+
+
+## Benchmark suites
 
 The renaissance suite must be downloaded.
 ```bash

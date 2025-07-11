@@ -129,33 +129,34 @@ public class Utility {
       int readBytes = 0;
       List<String> info = new ArrayList<>();
       try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(callsite.toString()))) {
-        byte[] bytes = new byte[128 * 1024 * 1024];
+        byte[] bytes = new byte[144 * 1024 * 1024];
         int len;
         outer: while ((len = in.read(bytes)) != -1) {
-          for (int i = 0; i < len; i += 16) {
+          for (int i = 0; i < len; i += 24) {
+            long compileId = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i, i + 8)).getLong();
             byte[] cs = new byte[8];
-            cs[4] = bytes[i];
-            cs[5] = bytes[i + 1];
-            cs[6] = bytes[i + 2];
-            cs[7] = bytes[i + 3];
+            cs[4] = bytes[i + 8];
+            cs[5] = bytes[i + 8 + 1];
+            cs[6] = bytes[i + 8 + 2];
+            cs[7] = bytes[i + 8 + 3];
             long callsiteId = ByteBuffer.wrap(cs).getLong();
-            cs[4] = bytes[i + 4];
-            cs[5] = bytes[i + 5];
-            cs[6] = bytes[i + 6];
-            cs[7] = bytes[i + 7];
+            cs[4] = bytes[i + 8 + 4];
+            cs[5] = bytes[i + 8 + 5];
+            cs[6] = bytes[i + 8 + 6];
+            cs[7] = bytes[i + 8 + 7];
             long classNameId = ByteBuffer.wrap(cs).getLong();
-            long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
+            long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 16, i + 24)).getLong();
             if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
               break outer;
             }
             info.add(idToCallsite.get(callsiteId));
             info.add(idToClassname.get(classNameId));
             info.add(String.valueOf(timeDiff));
-            readBytes += 16;
-            if (readBytes >= 128 * 1024 * 1024) {
+            readBytes += 24;
+            if (readBytes >= 144 * 1024 * 1024) {
               StringBuilder sb = new StringBuilder();
-              for (int j = 0; j < info.size(); j += 3) {
-                sb.append(String.format("%s %s %s\n", info.get(j), info.get(j + 1), info.get(j + 2)));
+              for (int j = 0; j < info.size(); j += 4) {
+                sb.append(String.format("%s %s %s %s\n", info.get(j), info.get(j + 1), info.get(j + 2), info.get(j + 3)));
               }
               Files.writeString(output.toPath(), sb, StandardOpenOption.APPEND);
             }
@@ -163,8 +164,8 @@ public class Utility {
         }
       }
       StringBuilder sb = new StringBuilder();
-      for (int j = 0; j < info.size(); j += 3) {
-        sb.append(String.format("%s %s %s\n", info.get(j), info.get(j + 1), info.get(j + 2)));
+      for (int j = 0; j < info.size(); j += 4) {
+        sb.append(String.format("%s %s %s %s\n", info.get(j), info.get(j + 1), info.get(j + 2), info.get(j + 3)));
       }
       Files.writeString(output.toPath(), sb, StandardOpenOption.APPEND);
     } catch (IOException e) {
