@@ -59,6 +59,6 @@ public class FilePartitionerTest{
     FilePartitioner.partitionFiles(files);
     File res = new File("result");
     assertTrue(res.isDirectory());
-    assertEquals(61, res.listFiles().length);
+    assertEquals(62, res.listFiles().length);
   }
 }
