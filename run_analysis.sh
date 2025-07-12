@@ -94,6 +94,8 @@ for entry in "${benchmarks[@]}"; do
 
     if [ $? -ne 0 ]; then
       echo Something went wrong analyzing $SUITE $entry iteration $i
+      rm output/*
+      rm result/*
       continue
     fi
 
