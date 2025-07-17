@@ -1,5 +1,10 @@
 package com.msde.app;
 
+import java.io.BufferedInputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.io.*;
 import java.nio.file.Files;
 import java.util.*;
@@ -125,26 +130,21 @@ public class App {
     }
 
     private static boolean threadAnalysis(File resultFolder, Map<Long, String> idToCallsite, Map<Long, String> idToClassName, Args arguments, XmlParser parser, Long startTime, File cf, Long startTimeDiff) {
-        Optional<File> maybeSortedFile = BinaryFileSorter.createSortedFile(cf);
-        if(maybeSortedFile.isEmpty()){
+        Optional<LongList> maybeInfo = readBinary(cf);
+        if(maybeInfo.isEmpty()){
             System.err.println("Couldn't read binary file: " + cf.getAbsolutePath());
             return true;
         }
-        Map<Pair<Long, Long>, PartitionedWindows> cidToWindows = null;
-        try {
-            cidToWindows = analyzeSortedFile(maybeSortedFile.get(), arguments.delta, idToClassName);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        maybeSortedFile.get().delete();
-        assert cidToWindows != null;
+        LongList info = maybeInfo.get();
 
         String callsiteFileNumber = cf.getName().replace("callsite_", "").replace(".txt", "");
         File resFile = new File(resultFolder, String.format("result_%03d.txt", Integer.parseInt(callsiteFileNumber)));
         if (resFile.exists()) {
             resFile.delete();
         }
-        for(Map.Entry<Pair<Long, Long>, PartitionedWindows> entry: cidToWindows.entrySet()){
+
+        Map<Pair<Long, Long>, Map<Long, LongList>> callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
+        for (var entry : callsiteInfo.entrySet()) {
             Pair<Long, Long> ccu = entry.getKey();
             String callsite = idToCallsite.get(ccu.first);
             if (callsite == null) {
@@ -152,7 +152,7 @@ public class App {
                 System.exit(1);
             }
             // System.out.println("Callsite: " + callsite);
-            PartitionedWindows percentageWindows = entry.getValue();
+            var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
             String methodDescriptor = extractMethodDescriptor(callsite);
             // NOTE: compilations are given in milliseconds from the start time while
             // the instrumentation keeps the times in microseconds.
@@ -178,85 +178,103 @@ public class App {
 
     public record Pair<T, P>(T first, P second) {}
 
-    static Map<Pair<Long, Long>, PartitionedWindows> analyzeSortedFile(File sortedFile, long delta, Map<Long, String> idToClass) throws FileNotFoundException, IOException{
-        try (BufferedReader br = new BufferedReader(new FileReader(sortedFile))) {
-            String line;
-            // Optional<Long> callsiteId = Optional.empty();
-            Set<Long> classIds = new HashSet<>();
-            long windowStart = 0;
-            long end=0;
-            long cid = -1;
-            long compileId = -2;
-            Optional<Pair<Long, Long>> maybeCCU = Optional.empty();
-            Map<Pair<Long,Long>, PartitionedWindows> callsiteIdToWindows = new HashMap<>();
-            List<Map<Long, Integer>> windows = new ArrayList<>();
-            while ((line = br.readLine()) != null) {
-                String[] sl = line.split(" ");
-                cid = Long.parseLong(sl[0]);
-                compileId = Long.parseLong(sl[1]);
-                long kid = Long.parseLong(sl[2]);
-                long time = Long.parseLong(sl[3]);
-                // A change between two callsite id or compilation units
-                if (maybeCCU.isPresent() && (maybeCCU.get().first != cid || maybeCCU.get().second != compileId)) {
-                    var partitionedWindows = windows.stream().map(m -> {
-                        double tot = m.values().stream().mapToDouble(e -> e).sum();
-                        
-                        Map<Long, Double> t =  m.entrySet().stream().map(e -> new AbstractMap.SimpleEntry<>(e.getKey(), tot == 0 ? 0 : e.getValue() / tot))
-                                .collect(Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
-                        for(Long entry: classIds){
-                            t.putIfAbsent(entry, 0.0);
+    private static Optional<LongList> readBinary(File binaryFile) {
+        try {
+            // byte[] bytes = Files.readAllBytes(binaryFile.toPath());
+            ByteBuffer.allocate(Long.BYTES).getLong();
+            LongList l = new LongList();
+            try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(binaryFile.toPath().toString()))) {
+                byte[] bytes = new byte[144*1024*1024];
+                int len;
+                outer: while ((len = in.read(bytes)) != -1) {
+                    for(int i=0; i<len; i+= 24){
+                        long compileId = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i, i + 8)).getLong();
+                        byte[] cs = new byte[8];
+                        cs[4] = bytes[i + 8];
+                        cs[5] = bytes[i + 8 + 1];
+                        cs[6] = bytes[i + 8 + 2];
+                        cs[7] = bytes[i + 8 + 3];
+                        long callsiteId = ByteBuffer.wrap(cs).getLong();
+                        cs[4] = bytes[i +8 + 4];
+                        cs[5] = bytes[i +8 + 5];
+                        cs[6] = bytes[i +8 + 6];
+                        cs[7] = bytes[i +8 + 7];
+                        long classNameId = ByteBuffer.wrap(cs).getLong();
+                        long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 16, i + 24)).getLong();
+                        if (compileId == 0 && callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
+                          break outer;
                         }
-                        return t;
-                    }).toList();
-                    PartitionedWindows pw = new PartitionedWindows(partitionedWindows, windowStart, end);
-                    // callsiteIdToWindows.put(callsiteId.get(), pw);
-                    callsiteIdToWindows.put(maybeCCU.get(), pw);
-                    windows.clear();
-                    classIds.clear();
-                    // callsiteId = Optional.of(cid);
-                    maybeCCU = Optional.of(new Pair<>(cid, compileId));
-                    windowStart = time;
-
+                        l.add(callsiteId);
+                        l.add(compileId);
+                        l.add(classNameId);
+                        l.add(timeDiff);
+                    }
                 }
-                // First callsite encountered
-                if(maybeCCU.isEmpty()){
-                    // callsiteId = Optional.of(cid);
-                    maybeCCU = Optional.of(new Pair<>(cid, compileId));
-                    windowStart = time;
-                }
-                if(!idToClass.containsKey(kid)){
-                    continue;
-                }
-                end = time;
-                classIds.add(kid);
-                int index = (int) ((time-windowStart)/delta);
-                if(index >= windows.size()){
-                      for(int j = windows.size(); j<=index; j++){
-                         windows.add(new HashMap<>());
-                     }
-                 }
-                 windows.get(index).compute(kid, (k, v) -> v == null ? 1: v+1);
             }
-            // add the last callsite
-            var partitionedWindows = windows.stream().map(m -> {
-                double tot = m.values().stream().mapToDouble(e -> e).sum();
-                Map<Long, Double> t =  m.entrySet().stream().map(e -> new AbstractMap.SimpleEntry<>(e.getKey(), tot == 0 ? 0 : e.getValue() / tot))
-                        .collect(Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
-                for(Long entry: classIds){
-                    t.putIfAbsent(entry, 0.0);
-                }
-                return t;
-            }).toList();
-            if(cid !=-1 && !partitionedWindows.isEmpty()){
-                PartitionedWindows pw = new PartitionedWindows(partitionedWindows, windowStart, end);
-                callsiteIdToWindows.put(new Pair<>(cid, compileId), pw);
-            }
-            return callsiteIdToWindows;
+            return Optional.of(l);
         } catch (IOException e) {
-            System.out.println("IOException in try block =>" + e.getMessage());
+            System.err.println(e.getMessage());
         }
-        return null;
-   }
+        return Optional.empty();
+    }
+
+    public static Map<Pair<Long, Long>, Map<Long, LongList>> reconstructCallsiteInfo(LongList info, Map<Long, String> idToCallsite, Map<Long, String> idToClassName) {
+        /**
+        Return a map mapping from a callsite to a map which maps from class names to a list of invokation times for object of that class.
+        Ex: '0 java/lang/SomeStuff.someMethod()':
+                'ClassA': [0, 1, 2, 3]
+                'ClassB': [0, 1, 2, 3]
+                ...
+        NOTE: it might be better to keep the classids instead of getting the actual classnames to save ram.
+        **/
+        Map<Pair<Long, Long>, Map<Long, LongList>> callsiteToInfo = new HashMap<>();
+        for (int i = 0; i < info.size(); i += 4) {
+            long csid = info.get(i);
+            long compile_id = info.get(i+1);
+            long cnid = info.get(i + 2);
+            long timediff = info.get(i + 3);
+            String className = idToClassName.get(cnid);
+            if(className == null){
+                System.out.println(String.format("WARNING: ---------------- cnid is: %d", cnid));
+                continue;
+            }
+            Pair<Long, Long> ccu = new Pair<Long,Long>(csid, compile_id);
+            callsiteToInfo.computeIfAbsent(ccu, k -> new HashMap<>()).computeIfAbsent(cnid, k -> new LongList()).add(timediff);
+        }
+        return callsiteToInfo;
+    }
+
+    private static PartitionedWindows analyseCallsite(Map<Long, LongList> info, final long timeFrame) {
+        // returns a list of windows which shows the percentages of the calls on each receiver type in that window
+        // WindowStart and end are in microseconds.
+        long windowStart = info.values().stream().flatMapToLong(LongList::stream).min().orElse(0);
+        long end = info.values().stream().flatMapToLong(LongList::stream).max().orElse(Long.MAX_VALUE);
+        long nIteration = ((end-windowStart)/timeFrame) + 1;
+        // List of receiver type to list of time deltas of method invocation.
+        List<Map<Long, List<Long>>> windows = new ArrayList<>();
+        for(int j = 0; j<nIteration; j++){
+            windows.add(new HashMap<>());            
+        }
+        for (Map.Entry<Long, LongList> el : info.entrySet()) {
+            List<List<Long>> partitionedInfo = new ArrayList<>();
+            for(int j=0; j<nIteration; j++){
+                partitionedInfo.add(new ArrayList<>());
+            }      
+            for(Long l: el.getValue()){
+                int index = (int) ((l-windowStart)/timeFrame);
+                partitionedInfo.get(index).add(l);
+            }
+            for(int j=0; j<partitionedInfo.size();j++){
+                windows.get(j).put(el.getKey(), partitionedInfo.get(j));
+            }
+        }
+        var partitionedWindows = windows.stream().map(m -> {
+            double tot = m.values().stream().mapToDouble(List::size).sum();
+            return m.entrySet().stream().map(e -> new AbstractMap.SimpleEntry<>(e.getKey(), tot == 0? 0: e.getValue().size() / tot))
+                    .collect(Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
+        }).toList();
+        return new PartitionedWindows(partitionedWindows, windowStart, end);
+    }
 
     static String extractMethodDescriptor(String callsite){
         String methodDescriptor = callsite.split(" ")[1];
