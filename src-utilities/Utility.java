@@ -28,25 +28,26 @@ public class Utility {
     Args parsedArgs = new Args(null,
         new File("/home/ubuntu/receiver-types-profiler/output/callsite_to_id_21_03_25_11_25.csv"),
         new File("/home/ubuntu/receiver-types-profiler/output/classNameMapping_21_03_25_11_25.csv"),
-        null
-      );
+        null);
     int i = 0;
-    if(args.length < 1){
-        System.out.println("usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid] [--input-folder folder]");
-        System.out.println("       --input-folder and --callsite are not compatible.");
-        System.exit(0);
+    if (args.length < 1) {
+      System.out.println(
+          "usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid] [--input-folder folder]");
+      System.out.println("       --input-folder and --callsite are not compatible.");
+      System.exit(0);
     }
     while (i < args.length) {
       String current = args[i++];
       switch (current) {
         case "--callsite", "-c" -> {
           File callsite = new File(args[i++]);
-          if(parsedArgs.inputFolder != null){
-            System.out.println("usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid] [--input-folder folder]");
+          if (parsedArgs.inputFolder != null) {
+            System.out.println(
+                "usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid] [--input-folder folder]");
             System.out.println("       --input-folder and --callsite are not compatible.");
             System.exit(0);
           }
-          parsedArgs = new Args(callsite, parsedArgs.callsiteId, parsedArgs.classId, parsedArgs.inputFolder );
+          parsedArgs = new Args(callsite, parsedArgs.callsiteId, parsedArgs.classId, parsedArgs.inputFolder);
         }
         case "--id", "-i" -> {
           File callsiteId = new File(args[i++]);
@@ -54,22 +55,24 @@ public class Utility {
 
         }
         case "--id-class", "-k" -> {
-          File classId= new File(args[i++]);
+          File classId = new File(args[i++]);
           parsedArgs = new Args(parsedArgs.binaryFile, parsedArgs.callsiteId, classId, parsedArgs.inputFolder);
 
         }
         case "--input-folder", "-f" -> {
           File inputFolder = new File(args[i++]);
-          if(parsedArgs.binaryFile!=null){
-            System.out.println("usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid] [--input-folder folder]");
+          if (parsedArgs.binaryFile != null) {
+            System.out.println(
+                "usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid] [--input-folder folder]");
             System.out.println("       --input-folder and --callsite are not compatible.");
             System.exit(0);
-            
+
           }
           parsedArgs = new Args(parsedArgs.binaryFile, parsedArgs.callsiteId, parsedArgs.classId, inputFolder);
         }
         default -> {
-          System.out.println("usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid] [--input-folder folder]");
+          System.out.println(
+              "usage: [--help] [--callsite callsitefile] [--id file] [--id-class classnameid] [--input-folder folder]");
           System.out.println("       --input-folder and --callsite are not compatible.");
           System.exit(0);
         }
@@ -83,32 +86,32 @@ public class Utility {
   public static void main(String[] args) {
     Args arguments = parseArgs(args);
     Map<Long, String> idToCallsite = parseCsvMapping(arguments.callsiteId);
-    Map<Long, String> idToClassname= parseCsvMapping(arguments.classId);
-    if(arguments.binaryFile!=null){
+    Map<Long, String> idToClassname = parseCsvMapping(arguments.classId);
+    if (arguments.binaryFile != null) {
       File output = new File("readable.txt");
-      try{
+      try {
         output.createNewFile();
-      }catch(IOException e){
+      } catch (IOException e) {
         System.err.println(e.getMessage());
       }
       binaryToReadable(arguments.binaryFile, idToCallsite, idToClassname, output);
     } else {
-        File[] callsites = arguments.inputFolder.listFiles((el) -> el.getName().startsWith("callsite"));
-        assert callsites != null;
-        File outputFolder = new File("readable");
-        if(!outputFolder.exists()){
-          outputFolder.mkdir();
+      File[] callsites = arguments.inputFolder.listFiles((el) -> el.getName().startsWith("callsite"));
+      assert callsites != null;
+      File outputFolder = new File("readable");
+      if (!outputFolder.exists()) {
+        outputFolder.mkdir();
+      }
+      for (File callsiteFile : callsites) {
+        String callsiteFileNumber = callsiteFile.getName().replace("callsite_", "").replace(".txt", "");
+        File output = new File(outputFolder, String.format("readable_%s.txt", callsiteFileNumber));
+        try {
+          output.createNewFile();
+        } catch (IOException e) {
+          System.err.println(e.getMessage());
         }
-        for(File callsiteFile: callsites){
-          String callsiteFileNumber = callsiteFile.getName().replace("callsite_", "").replace(".txt", "");
-          File output = new File(outputFolder, String.format("readable_%s.txt", callsiteFileNumber));
-          try{
-            output.createNewFile();
-          }catch(IOException e){
-            System.err.println(e.getMessage());
-          }
-          binaryToReadable(callsiteFile, idToCallsite, idToClassname, output);
-        }
+        binaryToReadable(callsiteFile, idToCallsite, idToClassname, output);
+      }
     }
   }
 
@@ -124,39 +127,38 @@ public class Utility {
     }
   }
 
-  private static void binaryToReadable(File callsite, Map<Long, String> idToCallsite, Map<Long, String> idToClassname, File output) {
+  private static void binaryToReadable(File callsite, Map<Long, String> idToCallsite, Map<Long, String> idToClassname,
+      File output) {
     try {
       int readBytes = 0;
       List<String> info = new ArrayList<>();
       try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(callsite.toString()))) {
-        byte[] bytes = new byte[144 * 1024 * 1024];
+        final int bufferSize = 144 * 1024 * 1024;
+        final int bytesPerDataPoint = 24;
+
+        byte[] bytes = new byte[bufferSize];
         int len;
         outer: while ((len = in.read(bytes)) != -1) {
-          for (int i = 0; i < len; i += 24) {
+          for (int i = 0; i < len; i += bytesPerDataPoint) {
             long compileId = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i, i + 8)).getLong();
-            byte[] cs = new byte[8];
-            cs[4] = bytes[i + 8];
-            cs[5] = bytes[i + 8 + 1];
-            cs[6] = bytes[i + 8 + 2];
-            cs[7] = bytes[i + 8 + 3];
-            long callsiteId = ByteBuffer.wrap(cs).getLong();
-            cs[4] = bytes[i + 8 + 4];
-            cs[5] = bytes[i + 8 + 5];
-            cs[6] = bytes[i + 8 + 6];
-            cs[7] = bytes[i + 8 + 7];
-            long classNameId = ByteBuffer.wrap(cs).getLong();
+            long packedLong = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
+            long callsiteId = packedLong >> 32;
+            long classNameId = packedLong & 0xffffffffL;
             long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 16, i + 24)).getLong();
             if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
               break outer;
             }
+            
             info.add(idToCallsite.get(callsiteId));
+            info.add(compileId);
             info.add(idToClassname.get(classNameId));
             info.add(String.valueOf(timeDiff));
-            readBytes += 24;
-            if (readBytes >= 144 * 1024 * 1024) {
+            readBytes += bytesPerDataPoint;
+            if (readBytes >= bufferSize) {
               StringBuilder sb = new StringBuilder();
               for (int j = 0; j < info.size(); j += 4) {
-                sb.append(String.format("%s %s %s %s\n", info.get(j), info.get(j + 1), info.get(j + 2), info.get(j + 3)));
+                sb.append(
+                    String.format("%s %s %s %s\n", info.get(j), info.get(j + 1), info.get(j + 2), info.get(j + 3)));
               }
               Files.writeString(output.toPath(), sb, StandardOpenOption.APPEND);
             }

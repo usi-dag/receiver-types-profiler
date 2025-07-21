@@ -53,7 +53,9 @@ public class Profiler{
 
       try{
         RandomAccessFile ra = new RandomAccessFile(outputFile, "rw");
-        return ra.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, length*8);
+        MappedByteBuffer mb = ra.getChannel().map(FileChannel.MapMode.READ_WRITE, 0, length*8);
+        ra.close();
+        return mb;
       } catch(IOException e){
         System.err.println(e.getMessage());
       }

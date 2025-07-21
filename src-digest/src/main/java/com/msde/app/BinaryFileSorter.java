@@ -27,22 +27,16 @@ public class BinaryFileSorter {
       FileWriter writer = new FileWriter(workingFile);
       BufferedWriter bWriter = new BufferedWriter(writer);
       try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(binaryFile.toPath().toString()))) {
-        byte[] bytes = new byte[144 * 1024 * 1024];
+        final int bufferSize = 144*1024*1024;
+        final int bytesPerDataPoint = 24;
+        byte[] bytes = new byte[bufferSize];
         int len;
         outer: while ((len = in.read(bytes)) != -1) {
-          for (int i = 0; i < len; i += 24) {
+          for (int i = 0; i < len; i += bytesPerDataPoint) {
             long compileId = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i, i + 8)).getLong();
-            byte[] cs = new byte[8];
-            cs[4] = bytes[i + 8];
-            cs[5] = bytes[i + 8 + 1];
-            cs[6] = bytes[i + 8 + 2];
-            cs[7] = bytes[i + 8 + 3];
-            long callsiteId = ByteBuffer.wrap(cs).getLong();
-            cs[4] = bytes[i +8 + 4];
-            cs[5] = bytes[i +8 + 5];
-            cs[6] = bytes[i +8 + 6];
-            cs[7] = bytes[i +8 + 7];
-            long classNameId = ByteBuffer.wrap(cs).getLong();
+            long packedLong = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i+8, i+16)).getLong();
+            long callsiteId = packedLong >> 32;
+            long classNameId = packedLong & 0xffffffffL;
             long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 16, i + 24)).getLong();
             if (compileId == 0 && callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
               break outer;
@@ -65,16 +59,7 @@ public class BinaryFileSorter {
           l.clear();
         }
       }
-      List<String> quadruplets = IntStream.range(0, l.size() / 4)
-          .mapToObj(i -> String.format("%d %d %d %d\n", l.get(4 * i), l.get(4 * i + 1), l.get(4 * i + 2), l.get(4 * i + 3)))
-          .toList();
-      quadruplets.forEach((e) -> {
-        try {
-          bWriter.write(e);
-        } catch (IOException ex) {
-          System.err.println(ex);
-        }
-      });
+      assert l.size() == 0;
       bWriter.close();
       ProcessBuilder pb = new ProcessBuilder("sort", "-nk1", "-nk2" , "-nk4", workingFile.getPath(), "-o", sortedFile.getPath());
       Process process = pb.start();
