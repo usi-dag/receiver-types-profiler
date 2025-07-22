@@ -54,6 +54,15 @@ if [ ! -d result/ ]; then
   mkdir result/
 fi
 
+
+ARCH=`uname -p`
+
+
+AGENT_PATH=lib/$ARCH/libdislagent.so
+DISL_BYPASS=lib/disl-bypass.jar
+PROFILER=build/profiler.jar
+TIER4=20000
+
 for entry in "${benchmarks[@]}"; do
 
   for i in $(seq $ITERATION); do 
@@ -69,12 +78,6 @@ for entry in "${benchmarks[@]}"; do
 
     sleep 2
 
-    ARCH=`uname -p`
-
-
-    AGENT_PATH=lib/$ARCH/libdislagent.so
-    DISL_BYPASS=lib/disl-bypass.jar
-    PROFILER=build/profiler.jar
     LOG_FILE=result/compiler_log_"$SUITE"_"$entry"_"$i".xml
 
     $JAVA_HOME/bin/java -agentpath:$AGENT_PATH --patch-module java.base=$DISL_BYPASS \
@@ -83,6 +86,8 @@ for entry in "${benchmarks[@]}"; do
     -Xbootclasspath/a:$DISL_BYPASS:$PROFILER -noverify -cp $PROFILER \
     -Xmx$DISLHEAP -Xms$DISLHEAP \
     -XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation -XX:LogFile=$LOG_FILE \
+    -XX:CompilationMode=high-only \
+    -XX:Tier4InvocationThreshold=$TIER4 \
     -jar $BENCH $entry $FLAGS
 
     # exit 0
