@@ -3,14 +3,11 @@ import csv
 import json
 from argparse import ArgumentParser, Namespace
 from pathlib import Path
-from typing import List, Dict
+from typing import List
 from dataclasses import dataclass
 from collections import defaultdict
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib as mpl
-from functools import reduce
 
 
 def main():
@@ -44,32 +41,40 @@ def main():
     for f in result_files:
         ccus = extract_ccus_information(f)
         for ccu in ccus:
-            c, i, id_was_decompiled = extract_compilation_decompilation(ccu)
+            c, i, id_was_decompiled, cid_to_changes, cid_to_inv = extract_compilation_decompilation(ccu)
+            c2, i2, id_was_decompiled2, cid_to_changes2, cid_to_inv2= extract_compilation_decompilation(ccu, True)
             # NOTE: this mapping between ccu and id is necessary since the ccus might exceed
             # the limit of a valid file name length on linux
             ccu_name = f"{ccu.callsite} - {ccu.cid}"
             ccu_to_id[ccu_name] = ccu_id
             ccu_id += 1
             oscillations, inversions_to_count = find_oscillations(i)
+            oscillations_2, inversions_to_count_2 = find_oscillations(i2)
             save_oscillations(oscillations, out, ccu_to_id[ccu_name])
+            save_oscillations(oscillations_2, out, ccu_to_id[ccu_name], True)
             most_frequent_oscillation = max(
                 oscillations, key=oscillations.get, default=()
             )
             max_oscillation_frequency = oscillations.get(most_frequent_oscillation)
+
+            most_frequent_oscillation_2 = max(
+                oscillations_2, key=oscillations_2.get, default=()
+            )
+            max_oscillation_frequency_2 = oscillations_2.get(most_frequent_oscillation_2, 0)
             most_frequent_inversion = max(
                 inversions_to_count, key=inversions_to_count.get, default=()
             )
             max_inversion_frequency = inversions_to_count.get(most_frequent_inversion)
-            comp_id_to_count = number_of_windows_before_decompilation(ccu)
+
+            most_frequent_inversion_2 = max(
+                inversions_to_count_2, key=inversions_to_count_2.get, default=()
+            )
+            max_inversion_frequency_2 = inversions_to_count_2.get(most_frequent_inversion_2, 0)
+            # comp_id_to_count = number_of_windows_before_decompilation(ccu)
+            comp_id_to_count = {k: len(v) for k, v in cid_to_inv2.items()}
             id_to_sub_time = compute_suboptimal_time(
                 comp_id_to_count, id_was_decompiled, ccu.window_size
             )
-            if len(comp_id_to_count) > 0:
-                average_inversions_before_decompilations = reduce(
-                    lambda a, b: a + b, comp_id_to_count.values(), 0
-                ) / len(comp_id_to_count)
-            else:
-                average_inversions_before_decompilations = 0
             raw = ccu.raw
             statistics[ccu_name] = {
                 "changes": len(ccu.changes),
@@ -83,7 +88,12 @@ def main():
                 "most frequent oscillation value": max_oscillation_frequency,
                 "most frequent inversion": str(most_frequent_inversion),
                 "most frequent inversion value": max_inversion_frequency,
-                "average_inversions_before_decompilation": average_inversions_before_decompilations,
+                "cac_c2": len(c2) / 3,
+                "iac_c2": len(i2) / 3,
+                "most frequent oscillation c2": str(most_frequent_oscillation_2),
+                "most frequent oscillation value c2": max_oscillation_frequency_2,
+                "most frequent inversion c2": str(most_frequent_inversion_2),
+                "most frequent inversion value c2": max_inversion_frequency_2,
             }
             compile_id_to_receiver_count = find_receiver_reduction(raw)
             rcd = save_receiver_reduction(
@@ -107,7 +117,7 @@ def main():
     normalized_df.to_csv(normalized_csv)
     df = df.sort_values("inversions after compilation", ascending=False)
     df.to_csv(out.joinpath(f"{args.name}_statistics.csv"))
-    save_plots(df, out, args.name)
+    # save_plots(df, out, args.name)
     with open(out.joinpath("ccu_to_id.csv"), "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["key", "value"])
@@ -145,10 +155,12 @@ def save_receiver_reduction(compile_id_to_receiver_count):
     return receiver_count_data
 
 
-def save_oscillations(oscillations, output_folder, ccu_id):
+def save_oscillations(oscillations, output_folder, ccu_id, c2_only=False):
     if not oscillations:
         return
     oscillation_folder = output_folder.joinpath("oscillations")
+    if c2_only:
+        oscillation_folder = output_folder.joinpath("oscillations_2")
     if not oscillation_folder.is_dir():
         oscillation_folder.mkdir()
     df = pd.DataFrame(oscillations, index=[0, 1])
@@ -268,72 +280,6 @@ def normalize_by_hotness(df: pd.DataFrame, hotness: Path) -> pd.DataFrame:
         "normalized inversions after compilation", ascending=False
     )
     return aggregated_metrics
-
-
-def save_plots(df: pd.DataFrame, output_folder: Path, name: str):
-    data = {}
-    # bar plot
-    columns = [
-        e
-        for e in df.columns
-        if e
-        not in [
-            "id",
-            "index",
-            "method_descriptor",
-            "most frequent inversion",
-            "most frequent oscillation",
-            "average_inversions_before_decompilation",
-            "most frequent inversion value",
-            "most frequent oscillation value",
-            # "inversions after compilation",
-            # "changes after compilation",
-        ]
-    ]
-    for column in columns:
-        sorted = df.sort_values(by=column, ascending=False).head(30)
-        color = mpl.cm.inferno_r(np.linspace(0.4, 0.8, len(sorted)))
-        _ = sorted.plot.bar(
-            x="id", y=column, figsize=(40, 20), legend=True, color=color
-        )
-        plt.title(f"{column.capitalize()} for {name}")
-        plt.savefig(
-            output_folder.joinpath(f"{name}_{column.replace(' ', '_')}_bar.png")
-        )
-        plt.close()
-    # scatter plot
-    for column in columns:
-        cleaned = df[df[column] > 0]
-        color = mpl.cm.inferno_r(np.linspace(0.4, 0.8, len(cleaned)))
-        xticks = [] if len(cleaned) > 30 else cleaned["id"]
-        _ = cleaned.plot.scatter(
-            y=column,
-            x="id",
-            figsize=(30, 15),
-            xticks=xticks,
-            legend=True,
-            color=color,
-            rot=90,
-        )
-        plt.title(f"{column.capitalize()} for {name}")
-        plt.savefig(
-            output_folder.joinpath(f"{name}_{column.replace(' ', '_')}_scatter.png")
-        )
-        plt.close()
-    # boxplot
-    for column in columns:
-        # print(column)
-        cleaned = df[df[column] > 0]
-        color = mpl.cm.inferno_r(np.linspace(0.4, 0.8, len(cleaned)))
-
-        cleaned[column] = cleaned[column].astype(int)
-        _ = cleaned.boxplot(column=column, grid=False)
-        plt.title(f"{column.capitalize()} for {name}")
-        plt.savefig(
-            output_folder.joinpath(f"{name}_{column.replace(' ', '_')}_boxplot.png")
-        )
-        plt.close()
-    return data
 
 
 def cohen_d(deap: List[float], random: List[float]):
@@ -481,21 +427,28 @@ def clean_up_inversions(ccus: List[CCU]):
     return new_ccus
 
 
-def extract_compilation_decompilation(ccu: CCU):
-    compile_id_to_changes, compile_id_was_decompiled = compile_id_to_event(ccu.changes)
-    compile_id_to_inv, cid_was_decompiled = compile_id_to_event(ccu.inversions)
+def extract_compilation_decompilation(ccu: CCU, only_c2=False):
+    compile_id_to_changes, compile_id_was_decompiled = compile_id_to_event(
+        ccu.changes, only_c2=only_c2
+    )
+    compile_id_to_inv, cid_was_decompiled = compile_id_to_event(
+        ccu.inversions, only_c2=only_c2
+    )
     compile_id_was_decompiled.update(cid_was_decompiled)
+    compile_id_to_changes = {k: v for k,v in compile_id_to_changes.items() if k != "interpreter"}
+    compile_id_to_inv = {k:v for k, v in compile_id_to_inv.items() if k != "interpreter"}
     c = [e for k, v in compile_id_to_changes.items() for e in v if k != "interpreter"]
     i = [e for k, v in compile_id_to_inv.items() for e in v if k != "interpreter"]
-    return c, i, compile_id_was_decompiled
+    return c, i, compile_id_was_decompiled, compile_id_to_changes, compile_id_to_inv
 
 
-def compile_id_to_event(events):
+def compile_id_to_event(events, only_c2=True):
     compile_id_to_inv = defaultdict(list)
     last_id = "interpreter"
     compile_id_was_decompiled = {}
+    predicate = (lambda el: True) if not only_c2 else (lambda el: "kind = c2" in el)
     for el in events:
-        if el.strip().startswith("Compilation"):
+        if el.strip().startswith("Compilation") and predicate(el):
             matches = re.findall(r"id = \d+", el)
             cid = matches[0].replace("id = ", "")
             last_id = cid
@@ -508,28 +461,6 @@ def compile_id_to_event(events):
         else:
             compile_id_to_inv[last_id].append(el)
     return compile_id_to_inv, compile_id_was_decompiled
-
-
-def number_of_windows_before_decompilation(ccu: CCU) -> Dict[str, int]:
-    compile_id_to_inv_count = defaultdict(int)
-    compile_id_to_inv = defaultdict(list)
-    last_id = "interpreter"
-    for el in ccu.inversions:
-        if el.strip().startswith("Compilation") and "kind = c2" in el:
-            matches = re.findall(r"id = \d+", el)
-            cid = matches[0].replace("id = ", "")
-            last_id = cid
-        elif el.strip().startswith("Decompilation"):
-            matches = re.findall(r"compile_id = \d+", el)
-            cid = matches[0].replace("compile_id = ", "")
-            if cid in compile_id_to_inv:
-                # the inversions are always reported as triplets of lines.
-                compile_id_to_inv_count[cid] = len(compile_id_to_inv[cid]) / 3
-            if last_id == cid:
-                last_id = "interpreter"
-        else:
-            compile_id_to_inv[last_id].append(el)
-    return compile_id_to_inv_count
 
 
 if __name__ == "__main__":
