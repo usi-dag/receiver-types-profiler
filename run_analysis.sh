@@ -61,7 +61,7 @@ ARCH=`uname -p`
 AGENT_PATH=lib/$ARCH/libdislagent.so
 DISL_BYPASS=lib/disl-bypass.jar
 PROFILER=build/profiler.jar
-TIER4=20000
+# TIER4=20000
 
 for entry in "${benchmarks[@]}"; do
 
@@ -87,9 +87,10 @@ for entry in "${benchmarks[@]}"; do
     -Xmx$DISLHEAP -Xms$DISLHEAP \
     -XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation -XX:LogFile=$LOG_FILE \
     -XX:CompilationMode=high-only \
-    -XX:Tier4InvocationThreshold=$TIER4 \
     -jar $BENCH $entry $FLAGS
 
+    # -XX:Tier4InvocationThreshold=$TIER4 \
+    # 
     # exit 0
     # For some reason this sleep fixes a bug. I have no idea why nor how.
     # This is some of the jankiest fix ever made and it brings shame upon my family.
@@ -103,6 +104,8 @@ for entry in "${benchmarks[@]}"; do
       rm result/*
       continue
     fi
+
+    rm result/callsite_*.txt
 
     cp output/* result/
 
