@@ -107,7 +107,7 @@ def main():
     normalized_df.to_csv(normalized_csv)
     df = df.sort_values("inversions after compilation", ascending=False)
     df.to_csv(out.joinpath(f"{args.name}_statistics.csv"))
-    save_plots(df, out, args.name)
+    # save_plots(df, out, args.name)
     with open(out.joinpath("ccu_to_id.csv"), "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(["key", "value"])
