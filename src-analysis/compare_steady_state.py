@@ -1,9 +1,11 @@
 from argparse import ArgumentParser, Namespace
+from collections import defaultdict
 from pathlib import Path
 from typing import List
 from scipy import stats
 import numpy as np
 import pandas as pd
+import re
 
 
 def main():
@@ -26,24 +28,19 @@ def main():
     input_files: List[Path] = [f for f in input_folder.iterdir()]
     normal_runs = [f for f in input_files if f.name.startswith("normal_")]
     tweaked_runs = [f for f in input_files if f.name.startswith("th_")]
-    n = [(f.stem.replace("normal_", ""), f) for f in normal_runs]
-    t = [(f.stem.replace("th_", ""), f) for f in tweaked_runs]
-    normal_run_data = [(el[0], get_duration_uptime(el[1])) for el in n]
-    tweaked_run_data = [(el[0], get_duration_uptime(el[1])) for el in t]
-    normal_run_data = sorted(normal_run_data, key=lambda el: el[0])
-    normal_run_data = [el for el in normal_run_data if el[0] != "gauss-mix"]
-    tweaked_run_data = sorted(tweaked_run_data, key=lambda el: el[0])
-    assert len(tweaked_run_data) == len(normal_run_data)
+    normal_data = extract_data(normal_runs)
+    tweaked_data = extract_data(tweaked_runs)
     statistics = {}
-    for normals, tweakeds in zip(normal_run_data, tweaked_run_data):
-        normal_durations = normals[1][0]
-        normal_uptime = normals[1][1]
+    for bench, n in normal_data.items():
+        normal_durations = n["duration"]
+        normal_uptime = n["uptime"]
         nd_mean = np.mean(normal_durations)
         np_mean = np.mean(normal_uptime)
         nd_std = np.std(normal_durations)
         np_std = np.std(normal_uptime)
-        tweaked_durations = tweakeds[1][0]
-        tweaked_uptime = tweakeds[1][1]
+
+        tweaked_durations = tweaked_data[bench]["duration"]
+        tweaked_uptime = tweaked_data[bench]["uptime"]
         td_mean = np.mean(tweaked_durations)
         tp_mean = np.mean(tweaked_uptime)
         td_std = np.std(tweaked_durations)
@@ -54,7 +51,7 @@ def main():
         #       and maybe the statistical stuff.
         res_durations = stats.ttest_rel(normal_durations, tweaked_durations)
         res_uptime = stats.ttest_rel(normal_uptime, tweaked_uptime)
-        statistics[normals[0]] = {
+        statistics[bench] = {
             "nd_mean": nd_mean,
             "np_mean": np_mean,
             "nd_std": nd_std,
@@ -72,10 +69,27 @@ def main():
     df = df.T.sort_values("duration percentage difference", ascending=False)
     df_sig = df[df["durations p-value"] < 0.05]
     stats_file = output_folder.joinpath("statistics.csv")
+    latex = df.to_latex()
+    with open(output_folder.joinpath("latex.tex"), "w") as f:
+        f.write(latex)
     stats_file_sig = output_folder.joinpath("statistics_sig.csv")
     df.to_csv(stats_file)
     df_sig.to_csv(stats_file_sig)
     return
+
+
+def extract_data(files: List[Path]):
+    bench_to_data = defaultdict(lambda: defaultdict(list))
+    for f in files:
+        bench = re.sub("th_|normal_|_\d+.csv", "", f.name)
+        with open(f) as infile:
+            line = infile.readlines()[-1]
+            duration = int(line.split(",")[1])
+            uptime = int(line.split(",")[2])
+            bench_to_data[bench]["duration"].append(duration)
+            bench_to_data[bench]["uptime"].append(uptime)
+    return bench_to_data
+
 
 
 def get_duration_uptime(input_file: Path):

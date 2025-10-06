@@ -60,6 +60,9 @@ def main() -> None:
     for k, v in benchmark.items():
         data = compute_statistics(k, v)
         statistics.append(data)
+    df = get_dataframe(benchmark)
+    out = plot_dir()
+    save_dataframe(df, out)
     output_file: Path = plot_dir().joinpath("statistics.txt")
     for el in statistics:
         with output_file.open("a") as of:
@@ -74,6 +77,15 @@ def main() -> None:
 
     return
 
+def save_dataframe(df: pd.DataFrame, out: Path) -> None:
+    df = df.sort_index(axis=1, ascending=True)
+    df = df.T
+    style = df.style.format(decimal='.', thousands='.', precision=2)
+    latex = style.to_latex()
+    df.to_csv(out.joinpath("stats.csv"))
+    with open(out.joinpath("latex.txt"), "w") as f:
+        f.write(latex)
+    return
 
 def cohen_d(deap: List[float], random: List[float]):
     return (np.mean(deap) - np.mean(random)) / (
@@ -86,6 +98,29 @@ def plot_dir() -> Path:
     if not p.is_dir():
         p.mkdir()
     return p
+
+def get_dataframe(benchmarks: Dict[str, Dict[str, List[float]]]) -> pd.DataFrame:
+    data = defaultdict(dict)
+    for k, v in benchmarks.items():
+        k = k.replace("ren_", "")
+        default = v["default"]
+        instrumented = v["instrumented"]
+        avg_default = np.mean(default)
+        avg_instrumented = np.mean(instrumented)
+        cohend = cohen_d(default, instrumented)
+        will = scipy.stats.wilcoxon(default, instrumented)
+        geo_default = geometric_mean(default)
+        geo_instrumented = geometric_mean(instrumented)
+        # data[k]["mean default"] = avg_default
+        # data[k]["mean instrumented"] = avg_instrumented
+        data[k]["p value"] = will.pvalue
+        data[k]["cohen d"] = cohend
+        # data[k]["will statistic"] = will.statistic
+        data[k]["geometric mean default"] = geo_default
+        data[k]["geometric mean instrumented"] = geo_instrumented
+        data[k]["ratio"] = geo_instrumented / geo_default
+
+    return pd.DataFrame(data)
 
 
 def compute_statistics(name: str, value: Dict[str, List[float]]):
