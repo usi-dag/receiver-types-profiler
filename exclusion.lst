@@ -6,3 +6,6 @@ org.jboss.logmanager.*.*
 org.wildfly.common.*.*
 org.jboss.as.jmx.*.*
 org.wildfly.security.WildFlyElytronBaseProvider.*
+jdk.graal.compiler.*.*
+org.graalvm.*.*
+com.sun.proxy.*.*

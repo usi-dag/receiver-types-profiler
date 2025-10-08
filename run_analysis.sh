@@ -26,7 +26,7 @@ case "$SUITE" in
     		FLAGS="-r 1"
         BENCH=renaissance-gpl-0.16.0.jar 
         # benchmarks=(scrabble page-rank future-genetic akka-uct movie-lens scala-doku chi-square fj-kmeans rx-scrabble db-shootout neo4j-analytics finagle-http reactors dec-tree scala-stm-bench7 naive-bayes als par-mnemonics scala-kmeans philosophers log-regression gauss-mix mnemonics dotty finagle-chirper)
-        benchmarks=(rx-scrabble)
+        benchmarks=(scrabble)
         ;;
 
     *)
@@ -58,14 +58,25 @@ fi
 ARCH=`uname -p`
 
 
+if [ -n "$GRAAL" ]; then
+ echo "Using GraalVM"
+ # GRAAL_FLAGS="-server -XX:+UnlockExperimentalVMOptions -XX:+EnableJVMCI --add-exports=java.base/jdk.internal.misc=jdk.graal.compiler -Djdk.graal.CompilationFailureAction=Diagnose -Djdk.graal.DumpOnError=true -Djdk.graal.ShowDumpFiles=true -Djdk.graal.PrintGraph=Network -Djdk.graal.ObjdumpExecutables=objdump,gobjdump -Dgraalvm.locatorDisabled=true"
+fi
+
+
+
 AGENT_PATH=lib/$ARCH/libdislagent.so
 DISL_BYPASS=lib/disl-bypass.jar
 PROFILER=build/profiler.jar
 # TIER4=20000
+RESULT=result/
 
 for entry in "${benchmarks[@]}"; do
 
   for i in $(seq $ITERATION); do 
+
+    echo -e "\e[32mWorking on $entry iteration $i\e[0m"
+
     
     processid=`$JAVA_HOME/bin/jps | grep DiSLServer | cut -d " " -f1`
 
@@ -74,20 +85,23 @@ for entry in "${benchmarks[@]}"; do
       echo "Old DiSLServer killed"
     fi
 
+    echo -e "\e[32mStarting DiSL Server\e[0m"
+    
     ./startDiSLServer.sh
 
     sleep 2
 
     LOG_FILE=result/compiler_log_"$SUITE"_"$entry"_"$i".xml
 
-    $JAVA_HOME/bin/java -agentpath:$AGENT_PATH --patch-module java.base=$DISL_BYPASS \
-    -Djava.security.manager=allow \
+    $JAVA_HOME/bin/java\
+     $GRAAL_FLAGS \
+    -agentpath:$AGENT_PATH --patch-module java.base=$DISL_BYPASS \
     --add-exports java.base/ch.usi.dag.disl.dynamicbypass=ALL-UNNAMED \
     -Xbootclasspath/a:$DISL_BYPASS:$PROFILER -noverify -cp $PROFILER \
     -Xmx$DISLHEAP -Xms$DISLHEAP \
     -XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation -XX:LogFile=$LOG_FILE \
     -XX:CompilationMode=high-only \
-    -jar $BENCH $entry $FLAGS
+    -jar $BENCH $entry $FLAGS --csv $RESULT/normal_"$entry"_"$i".csv
 
     # -XX:Tier4InvocationThreshold=$TIER4 \
     # 

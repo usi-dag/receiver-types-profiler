@@ -14,7 +14,6 @@ processid=`jps | grep DiSLServer | cut -d " " -f1`
 
 if [ -n "$processid" ]; then
   kill -9 "$processid"
-  echo "AAAAAA"
 fi
 
 
@@ -28,11 +27,18 @@ AGENT_FLAGS="$AGENT_FLAGS --patch-module java.base=lib/disl-bypass.jar --add-exp
 ARCH=`uname -p`
 AGENT_EXT=.so
 
+if [ -n "$GRAAL" ]; then
+ echo "Using GraalVM"
+ GRAAL_FLAGS="-server -XX:+UnlockExperimentalVMOptions -XX:+EnableJVMCI --add-exports=java.base/jdk.internal.misc=jdk.graal.compiler -Djdk.graal.CompilationFailureAction=Diagnose -Djdk.graal.DumpOnError=true -Djdk.graal.ShowDumpFiles=true -Djdk.graal.PrintGraph=Network -Djdk.graal.ObjdumpExecutables=objdump,gobjdump -Dgraalvm.locatorDisabled=true"
+fi
+
 
 # ./runInstrumented.sh $1
- $JAVA_HOME/bin/java -agentpath:lib/$ARCH/libdislagent$AGENT_EXT \
-  $AGENT_FLAGS -Xbootclasspath/a:lib/disl-bypass.jar:build/profiler.jar \
+ $JAVA_HOME/bin/java $GRAAL_FLAGS \
+  -agentpath:lib/$ARCH/libdislagent$AGENT_EXT \
+  --patch-module java.base=lib/disl-bypass.jar \
+  --add-exports java.base/ch.usi.dag.disl.dynamicbypass=ALL-UNNAMED \
+  -Xbootclasspath/a:lib/disl-bypass.jar:build/profiler.jar \
    -cp build/app.jar -noverify -Xms5g -Xmx5g \
-   -XX:+UnlockDiagnosticVMOptions  -XX:+LogCompilation -XX:LogFile=compiler_log.xml $1
-
-
+   -XX:+UnlockDiagnosticVMOptions  -XX:+LogCompilation -XX:LogFile=compiler_log.xml \
+   Main
