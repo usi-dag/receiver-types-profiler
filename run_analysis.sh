@@ -50,6 +50,14 @@ esac
 
 ant -Ddislclass=profiler.Instrumentation -buildfile build.xml
 
+RED='\033[0;31m'
+NC='\033[0m'
+
+if [ $? -ne 0 ]; then
+ echo "${RED}Failed building profiler.${NC}"
+ exit 1
+fi
+
 if [ ! -d result/ ]; then
   mkdir result/
 fi
@@ -113,7 +121,7 @@ for entry in "${benchmarks[@]}"; do
     $JAVA_HOME/bin/java -Xmx$ANALYSISHEAP -classpath src-digest/target/classes/ com.msde.app.App -i output/ -c $LOG_FILE -d 1000 
 
     if [ $? -ne 0 ]; then
-      echo Something went wrong analyzing $SUITE $entry iteration $i
+      echo "{$RED}Something went wrong analyzing {$SUITE} {$entry} iteration {$i}{$NC}"
       rm output/*
       rm result/*
       continue

@@ -150,7 +150,7 @@ public class Utility {
             }
             
             info.add(idToCallsite.get(callsiteId));
-            info.add(compileId);
+            info.add(Long.toString(compileId));
             info.add(idToClassname.get(classNameId));
             info.add(String.valueOf(timeDiff));
             readBytes += bytesPerDataPoint;

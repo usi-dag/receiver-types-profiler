@@ -17,6 +17,7 @@
     <jar destfile="build/profiler.jar" basedir="bin-profiler">
       <manifest>
         <attribute name="DiSL-Classes" value="${dislclass}"/>
+        <attribute name="DiSL-Transformer" value="${disltransformer}"/>
       </manifest>
     </jar>
   </target>
