@@ -7,8 +7,8 @@ import java.util.List;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 
-class LongList implements Iterable<Long>{
-  private int length = 16*1024*1024;
+public class LongList implements Iterable<Long>{
+  private int length = 1024*1024;
   private long[] current;
   private int index = 0;
   private List<long[]> l;

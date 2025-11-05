@@ -39,6 +39,7 @@ for f in $INPUT/*; do
   HOTNESS_FILE=$HOTNESS/hot_methods_$name.csv
   tar -xzf $f -C $EXTRACTION_DIR
   python3 src-analysis/analyse_callsites.py --input-folder=$EXTRACTION_DIR/result --output-folder=$OUTPUT --hotness=$HOTNESS_FILE --name=$iteration
+  python3 src-analysis/stability.py --input-folder=$EXTRACTION_DIR/result --output-folder=$OUTPUT --name=$iteration
 
   if [ $? -ne 0 ]; then
     echo Something went wrong while analyzing $f

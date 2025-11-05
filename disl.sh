@@ -7,14 +7,24 @@ NC='\033[0m'
 
 DEBUG=false
 
+CLEAN=false
+
 while :; do
     case $1 in
         -d|--debug) DEBUG=true            
+        ;;
+        -c|--clear) CLEAN=true
         ;;
         *) break
     esac
     shift
 done
+
+
+if [ "$CLEAN" = true ]; then
+ rm output/*
+ rm result/*
+fi
 
 
 ant clean
@@ -48,7 +58,7 @@ if [ -n "$GRAAL" ]; then
  GRAAL_FLAGS="-server -XX:+UnlockExperimentalVMOptions -XX:+EnableJVMCI --add-exports=java.base/jdk.internal.misc=jdk.graal.compiler -Djdk.graal.CompilationFailureAction=Diagnose -Djdk.graal.DumpOnError=true -Djdk.graal.ShowDumpFiles=true -Djdk.graal.PrintGraph=Network -Djdk.graal.ObjdumpExecutables=objdump,gobjdump -Dgraalvm.locatorDisabled=true"
 fi
 
-LOG_FILE=compiler_log_disl.xml
+LOG_FILE=compiler_log.xml
 ANALYSISHEAP=10G
 
 

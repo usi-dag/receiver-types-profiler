@@ -26,8 +26,8 @@ public class Utility {
 
   private static Args parseArgs(String[] args) {
     Args parsedArgs = new Args(null,
-        new File("/home/ubuntu/receiver-types-profiler/output/callsite_to_id_21_03_25_11_25.csv"),
-        new File("/home/ubuntu/receiver-types-profiler/output/classNameMapping_21_03_25_11_25.csv"),
+        new File("/home/ubuntu/receiver-types-profiler/output/callsite_to_id.csv"),
+        new File("/home/ubuntu/receiver-types-profiler/output/classNameMapping.csv"),
         null);
     int i = 0;
     if (args.length < 1) {

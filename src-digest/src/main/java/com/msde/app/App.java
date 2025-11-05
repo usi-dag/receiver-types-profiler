@@ -10,30 +10,39 @@ import java.nio.file.Files;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.function.BiPredicate;
 
 
 /**
  */
 public class App {
-    record Args(File inputFolder, long delta, File compilerLog){}
+    record Args(File inputFolder, long delta, File compilerLog, int numberOfThreads){}
 
     private static Args parseArgs(String[] args){
-        Args parsedArgs = new Args(new File("/home/ubuntu/receiver-types-profiler/output"), 1000L, new File("/home/ubuntu/receiver-types-profiler/compiler_log.xml"));
+        Args parsedArgs = new Args(new File("/home/ubuntu/receiver-types-profiler/output"),
+            1000L,
+            new File("/home/ubuntu/receiver-types-profiler/compiler_log.xml"),
+             4);
         int i=0;
         while(i<args.length){
             String current = args[i++];
             switch(current){
                 case "--input-folder", "-i" -> {
                     File inputFolder = new File(args[i++]);
-                    parsedArgs = new Args(inputFolder, parsedArgs.delta, parsedArgs.compilerLog);
+                    parsedArgs = new Args(inputFolder, parsedArgs.delta, parsedArgs.compilerLog, parsedArgs.numberOfThreads);
                 }
                 case "--delta", "-d" -> {
                     long delta = Long.parseLong(args[i++]);
-                    parsedArgs = new Args(parsedArgs.inputFolder, delta, parsedArgs.compilerLog);
+                    parsedArgs = new Args(parsedArgs.inputFolder, delta, parsedArgs.compilerLog, parsedArgs.numberOfThreads);
                 }
                 case "--compile-log", "-c" -> {
                     File compilerLog = new File(args[i++]);
-                    parsedArgs = new Args(parsedArgs.inputFolder, parsedArgs.delta, compilerLog);
+                    parsedArgs = new Args(parsedArgs.inputFolder, parsedArgs.delta, compilerLog, parsedArgs.numberOfThreads);
+                    
+                }
+                case "--threads", "-t" -> {
+                    int nThreads = Integer.valueOf(args[i++]);
+                    parsedArgs = new Args(parsedArgs.inputFolder, parsedArgs.delta, parsedArgs.compilerLog, nThreads);
                     
                 }
                 default -> {
@@ -79,7 +88,7 @@ public class App {
         // Milliseconds
         final Long vmStartTime = parser.getVmStartTime();
         final Long startTimeDiff = startTime - vmStartTime;
-        int numberOfPartitions = 4;
+        int numberOfPartitions = arguments.numberOfThreads;
         List<List<File>> partitions = FilePartitioner.partitionFileList(List.of(callsiteFiles), numberOfPartitions);
         List<Thread> threads = new ArrayList<>();
         List<Integer> threadFinished = new ArrayList<>();
@@ -143,7 +152,14 @@ public class App {
             resFile.delete();
         }
 
-        Map<Pair<Long, Long>, Map<Long, LongList>> callsiteInfo = reconstructCallsiteInfo(info, idToCallsite, idToClassName);
+        List<Triplet<String, Integer, Long>> callSiteToStabilityPoint = new ArrayList<>();
+
+        File stabilityFile = new File(resultFolder, String.format("stability_%03d.txt", Integer.parseInt(callsiteFileNumber)));
+        if(stabilityFile.exists()){
+            stabilityFile.delete();
+        }
+
+        Map<Pair<Long, Long>, Map<Long, LongList>> callsiteInfo = reconstructCallsiteInfo(info, idToClassName);
         for (var entry : callsiteInfo.entrySet()) {
             Pair<Long, Long> ccu = entry.getKey();
             String callsite = idToCallsite.get(ccu.first);
@@ -153,6 +169,12 @@ public class App {
             }
             // System.out.println("Callsite: " + callsite);
             var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
+
+            // Find callsite stability point
+            BiPredicate<List<Long>, List<Long>> P = List::equals;
+            int stabilityPoint = ConvergeTime.callsiteStabilityTopReceiver(percentageWindows, P);
+            callSiteToStabilityPoint.add(new Triplet<>(callsite, stabilityPoint, (percentageWindows.end()-percentageWindows.start())/arguments.delta));
+
             String methodDescriptor = extractMethodDescriptor(callsite);
             // NOTE: compilations are given in milliseconds from the start time while
             // the instrumentation keeps the times in microseconds.
@@ -171,12 +193,14 @@ public class App {
             if (changes.isEmpty() && inversions.isEmpty()) {
                 continue;
             }
-            saveResultTofile(resFile, callsite, ccu.second, changes, inversions, windowsInformation, percentageWindows.start, arguments.delta);
+            saveResultTofile(resFile, callsite, ccu.second, changes, inversions, windowsInformation, percentageWindows.start(), arguments.delta);
         }
+        saveStabilityFile(stabilityFile, callSiteToStabilityPoint);
         return false;
     }
 
     public record Pair<T, P>(T first, P second) {}
+    public record Triplet<T, P, U>(T first, P second, U third) {}
 
     private static Optional<LongList> readBinary(File binaryFile) {
         try {
@@ -218,7 +242,7 @@ public class App {
         return Optional.empty();
     }
 
-    public static Map<Pair<Long, Long>, Map<Long, LongList>> reconstructCallsiteInfo(LongList info, Map<Long, String> idToCallsite, Map<Long, String> idToClassName) {
+    public static Map<Pair<Long, Long>, Map<Long, LongList>> reconstructCallsiteInfo(LongList info, Map<Long, String> idToClassName) {
         /**
         Return a map mapping from a callsite to a map which maps from class names to a list of invokation times for object of that class.
         Ex: '0 java/lang/SomeStuff.someMethod()':
@@ -235,7 +259,7 @@ public class App {
             long timediff = info.get(i + 3);
             String className = idToClassName.get(cnid);
             if(className == null){
-                System.out.println(String.format("WARNING: ---------------- cnid is: %d", cnid));
+                System.out.printf("WARNING: ---------------- cnid is: %d%n", cnid);
                 continue;
             }
             Pair<Long, Long> ccu = new Pair<Long,Long>(csid, compile_id);
@@ -273,7 +297,11 @@ public class App {
             return m.entrySet().stream().map(e -> new AbstractMap.SimpleEntry<>(e.getKey(), tot == 0? 0: e.getValue().size() / tot))
                     .collect(Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue));
         }).toList();
-        return new PartitionedWindows(partitionedWindows, windowStart, end);
+        var receiverToCounts = windows.stream()
+                .map(m -> m.entrySet().stream()
+                        .map(e -> new AbstractMap.SimpleEntry<>(e.getKey(), e.getValue().size()))
+                .collect(Collectors.toMap(AbstractMap.SimpleEntry::getKey, AbstractMap.SimpleEntry::getValue))).toList();
+        return new PartitionedWindows(partitionedWindows, windowStart, end, receiverToCounts);
     }
 
     static String extractMethodDescriptor(String callsite){
@@ -327,22 +355,17 @@ public class App {
         return 0L;
     }
 
-
-    record PartitionedWindows(List<Map<Long, Double>> windows, long start, long end){}
-
-    // record PartitionedWindow(Map<String, Double> value, int windowIndex){}
-
     private static List<PrintInformation> getRawWindowInformation(PartitionedWindows windows, final long window, final long startTime,
          List<Compilation> compilationTasks, List<Decompilation> decompilations, Map<Long, String> idToName) {
         // Compilation and decompilations are given as offset in microseconds from the startTime
         
-        List<Map<Long, Double>> pw = windows.windows;
+        List<Map<Long, Double>> pw = windows.windows();
         List<PrintInformation> windowInformation = new ArrayList<>();
         int compilationIter = 0;
         int decompilationIter = 0;
-        final int indexOffset = (int) (windows.start/window);
+        final int indexOffset = (int) (windows.start() /window);
         // the window start offset is in microseconds, the start time is in millisecond
-        final long firstWindowStartTime = startTime + (windows.start/1000);
+        final long firstWindowStartTime = startTime + (windows.start() /1000);
         for (int i = 0; i < pw.size(); i++) {
             var w = pw.get(i);
 
@@ -369,14 +392,14 @@ public class App {
          List<Compilation> compilationTasks, List<Decompilation> decompilations, Map<Long, String> idToName) {
         // Compilation and decompilations are given as offset in microseconds from the startTime
         
-        List<Map<Long, Double>> pw = windows.windows;
+        List<Map<Long, Double>> pw = windows.windows();
         final double threshold = 0.1;
         List<PrintInformation> changes = new ArrayList<>();
         int compilationIter = 0;
         int decompilationIter = 0;
-        final int indexOffset = (int) (windows.start/window);
+        final int indexOffset = (int) (windows.start() /window);
         // the window start offset is in microseconds, the start time is in millisecond
-        final long firstWindowStartTime = startTime + (windows.start/1000);
+        final long firstWindowStartTime = startTime + (windows.start() /1000);
         // [A] [] [A] [] [A] [] [B]
         // [][][A] [] [A] [] [A] [] [B]
         // [A] [] [] [] [A] [] [B]
@@ -431,13 +454,13 @@ public class App {
 
     private static List<PrintInformation> findInversions(PartitionedWindows windows, final long window, final long startTime,
          List<Compilation> compilationTasks, List<Decompilation> decompilations, Map<Long, String> idToName) {
-        List<Map<Long, Double>> pw = windows.windows;
+        List<Map<Long, Double>> pw = windows.windows();
         List<PrintInformation> inversions = new ArrayList<>();
-        final int offset = (int) (windows.start/window);
+        final int offset = (int) (windows.start() /window);
         int compIter = 0;
         int decIter = 0;
         // the window offset start is in microsecond, the startTime is in milliseconds
-        final long firstWindowStartTime = startTime + (windows.start/1000);
+        final long firstWindowStartTime = startTime + (windows.start() /1000);
         Optional<Map<Long, Double>> lastValidWindow = Optional.empty();
         for (int i = 0; i < pw.size() - 1; i++) {
             var w1 = pw.get(i);
@@ -449,13 +472,11 @@ public class App {
             boolean w2Empty = w2.values().stream().mapToDouble(e->e).sum() == 0.0;
             Long[] keys = w1.keySet().toArray(Long[]::new);
             Long[] keysSorted1 = Arrays.stream(keys).filter(k->w1.get(k)!=0).sorted((k1, k2) -> {
-                int s = Double.compare(w1.get(k2), w1.get(k1));
-                return s;
+                return Double.compare(w1.get(k2), w1.get(k1));
             }).toArray(Long[]::new);
 
             Long[] keysSorted2 = Arrays.stream(keys).filter(k-> w2.get(k)!=0).sorted((k1, k2) -> {
-                int s = Double.compare(w2.get(k2), w2.get(k1));
-                return s;
+                return Double.compare(w2.get(k2), w2.get(k1));
             }).toArray(Long[]::new);
 
             if (compIter < compilationTasks.size() &&
@@ -476,8 +497,7 @@ public class App {
                 if(!lastValidWindow.isEmpty()){
                     Map<Long, Double> lv = lastValidWindow.get();
                     Long[] keysSortedLV = Arrays.stream(keys).filter(k-> lv.get(k)!=0).sorted((k1, k2) -> {
-                        int s = Double.compare(lv.get(k2), lv.get(k1));
-                        return s;
+                        return Double.compare(lv.get(k2), lv.get(k1));
                     }).toArray(Long[]::new);
                     if(!compareRanking(keysSortedLV, keysSorted2)){
                         inversions.add(new Inversion(offset+i, offset+i + 1, lv, w2, idToName));
@@ -508,6 +528,16 @@ public class App {
             }
         }
         return true;
+    }
+
+    private static void saveStabilityFile(File resFile, List<Triplet<String, Integer, Long>> stabilities){
+        try(BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(resFile, true))){
+            for(var p: stabilities){
+                bufferedWriter.append(String.format("[%d] [%d] [%s]\n", p.second, p.third, p.first));
+            }
+        }catch(IOException ignored){
+            
+        }     
     }
 
     private static void saveResultTofile(File resFile, String callsite, long compId, List<PrintInformation> changes, List<PrintInformation> inversions, List<PrintInformation> raw, long start, long delta){

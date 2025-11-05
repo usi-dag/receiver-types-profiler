@@ -267,12 +267,12 @@ public class RewriterVisitor extends ClassVisitor implements Opcodes {
 
     public MethodVisitor visitMethod(int access, String name, String desc, String signature, String[] exceptions) {
         List skippedClasses = List.of( "java/lang/Class", "jdk/internal/loader/BootLoader",
-         "jdk/internal/misc/CDS", "jdk/internal/reflect/Reflection",
+         "jdk/internal/misc/CDS", "jdk/internal/reflect/Reflection", "java/lang/invoke/VarHandle",
         "java/lang/ref/Finalizer", "java/lang/Runtime");
         List skippedMethods = List.of("getExtendedNPEMessage", "registerNatives", "getMaxLaneCount", "longBitsToDouble",
             "doubleToRawLongBits", "floatToRawIntBits", "intBitsToFloat",  "platformProperties", "vmProperties",
           "findBuiltinLib", "getStackAccessControlContext", "getInheritedAccessControlContext",
-        "invokeExact", "findEntry0");
+        "invokeExact", "findEntry0", "fillInStackTrace");
         // System.out.println(String.format("CLASSNAME IS: %s", this.className));
         // System.out.println(String.format("Contained?: %b", skippedClasses.contains(this.className)));
         if ((access & Opcodes.ACC_NATIVE) != 0 && !skippedClasses.contains(this.className)) {

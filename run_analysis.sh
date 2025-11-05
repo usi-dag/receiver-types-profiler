@@ -109,7 +109,7 @@ for entry in "${benchmarks[@]}"; do
     -Xmx$DISLHEAP -Xms$DISLHEAP \
     -XX:+UnlockDiagnosticVMOptions -XX:+LogCompilation -XX:LogFile=$LOG_FILE \
     -XX:CompilationMode=high-only \
-    -jar $BENCH $entry $FLAGS --csv $RESULT/normal_"$entry"_"$i".csv
+    -jar $BENCH $entry $FLAGS --csv $RESULT/benchmark_"$entry"_"$i".csv
 
     # -XX:Tier4InvocationThreshold=$TIER4 \
     # 
