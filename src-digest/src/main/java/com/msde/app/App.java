@@ -138,6 +138,9 @@ public class App {
         }
     }
 
+
+    public record StabilityData(int point, long max, String callsite, long offset, List<Compilation> comps, List<Decompilation> decomps){}
+
     private static boolean threadAnalysis(File resultFolder, Map<Long, String> idToCallsite, Map<Long, String> idToClassName, Args arguments, XmlParser parser, Long startTime, File cf, Long startTimeDiff) {
         Optional<LongList> maybeInfo = readBinary(cf);
         if(maybeInfo.isEmpty()){
@@ -152,7 +155,7 @@ public class App {
             resFile.delete();
         }
 
-        List<Triplet<String, Integer, Long>> callSiteToStabilityPoint = new ArrayList<>();
+        List<StabilityData> stabilities = new ArrayList<>();
 
         File stabilityFile = new File(resultFolder, String.format("stability_%03d.txt", Integer.parseInt(callsiteFileNumber)));
         if(stabilityFile.exists()){
@@ -170,10 +173,6 @@ public class App {
             // System.out.println("Callsite: " + callsite);
             var percentageWindows = analyseCallsite(entry.getValue(), arguments.delta);
 
-            // Find callsite stability point
-            BiPredicate<List<Long>, List<Long>> P = List::equals;
-            int stabilityPoint = ConvergeTime.callsiteStabilityTopReceiver(percentageWindows, P);
-            callSiteToStabilityPoint.add(new Triplet<>(callsite, stabilityPoint, (percentageWindows.end()-percentageWindows.start())/arguments.delta));
 
             String methodDescriptor = extractMethodDescriptor(callsite);
             // NOTE: compilations are given in milliseconds from the start time while
@@ -186,6 +185,14 @@ public class App {
             List<Decompilation> decompilations = parser.findDecompilationStamps(methodDescriptor);
             decompilations = decompilations.stream().map(e -> e.withTime((e.time() - startTimeDiff) * 1000))
                     .sorted(Comparator.comparing(Decompilation::time)).toList();
+
+            // Find callsite stability point
+            // the window start offset is in microseconds, the start time is in millisecond
+            final long startOffset = startTime + (percentageWindows.start() /1000);
+            int stabilityPoint = ConvergeTime.callsiteStabilityTopReceiver(percentageWindows, List::equals);
+            long maxWindow = (percentageWindows.end() -percentageWindows.start())/arguments.delta;
+            stabilities.add(new StabilityData(stabilityPoint, maxWindow, callsite, startOffset , compilations, decompilations));
+
             // List<Map<String, Double>> percentageWindows = null;
             var changes = findChanges(percentageWindows, arguments.delta, startTime, compilations, decompilations, idToClassName);
             var inversions = findInversions(percentageWindows, arguments.delta, startTime, compilations, decompilations, idToClassName);
@@ -195,7 +202,7 @@ public class App {
             }
             saveResultTofile(resFile, callsite, ccu.second, changes, inversions, windowsInformation, percentageWindows.start(), arguments.delta);
         }
-        saveStabilityFile(stabilityFile, callSiteToStabilityPoint);
+        saveStabilityFile(stabilityFile, stabilities);
         return false;
     }
 
@@ -530,10 +537,25 @@ public class App {
         return true;
     }
 
-    private static void saveStabilityFile(File resFile, List<Triplet<String, Integer, Long>> stabilities){
+    private static void saveStabilityFile(File resFile, List<StabilityData> stabilities){
         try(BufferedWriter bufferedWriter = new BufferedWriter(new FileWriter(resFile, true))){
             for(var p: stabilities){
-                bufferedWriter.append(String.format("[%d] [%d] [%s]\n", p.second, p.third, p.first));
+                String compilation = p.comps.stream()
+                    .map(c -> String.format("%d %s %s", c.time(), c.kind(), c.id()))
+                    .collect(Collectors.joining(",", "[", "]"));
+                String decompilation = p.decomps.stream()
+                    .map(d -> {
+                        String trap = "";
+                        if (d.reason() != null || d.action() != null) {
+                          trap = String.format(" %s %s", d.reason(), d.action());
+                        }else{
+                            trap = " - -";
+                        }
+                        return String.format("%d %s %s%s", d.time(), d.kind(), d.id(), trap);
+                    })
+                    .collect(Collectors.joining(",", "[", "]"));
+
+                bufferedWriter.append(String.format("[%d] [%d] [%s] [%d] %s %s\n", p.point, p.max, p.callsite, p.offset, compilation, decompilation));
             }
         }catch(IOException ignored){
             
