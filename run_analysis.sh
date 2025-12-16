@@ -71,9 +71,13 @@ if [ -n "$GRAAL" ]; then
  # GRAAL_FLAGS="-server -XX:+UnlockExperimentalVMOptions -XX:+EnableJVMCI --add-exports=java.base/jdk.internal.misc=jdk.graal.compiler -Djdk.graal.CompilationFailureAction=Diagnose -Djdk.graal.DumpOnError=true -Djdk.graal.ShowDumpFiles=true -Djdk.graal.PrintGraph=Network -Djdk.graal.ObjdumpExecutables=objdump,gobjdump -Dgraalvm.locatorDisabled=true"
 fi
 
+AGENT_EXT=.so
 
+if [[ "$(uname)" == "Darwin" ]]; then
+ AGENT_EXT=.jnilib
+fi
 
-AGENT_PATH=lib/$ARCH/libdislagent.so
+AGENT_PATH=lib/$ARCH/libdislagent$AGENT_EXT
 DISL_BYPASS=lib/disl-bypass.jar
 PROFILER=build/profiler.jar
 # TIER4=20000

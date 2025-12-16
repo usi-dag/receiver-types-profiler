@@ -12,8 +12,8 @@ class XmlParser {
   private List<String> content;
 
   public XmlParser(File compilerLog) {
-    try {
-        content = Files.lines(compilerLog.toPath()).filter(e -> e.contains("task ") ||
+    try(var lines = Files.lines(compilerLog.toPath())) {
+        content = lines.filter(e -> e.contains("task ") ||
           e.contains("make_not_entrant") ||
           e.contains("uncommon_trap") ||
           e.contains("hotspot_log") ||
@@ -22,7 +22,7 @@ class XmlParser {
         .map(l -> l.replace("&lt;", "<").replace("&gt;", ">"))
         .collect(Collectors.toList());
     } catch (IOException e) {
-        e.printStackTrace();
+        System.err.println("Error reading file: " + compilerLog.getAbsolutePath());
     }
   }
 
@@ -117,6 +117,7 @@ class XmlParser {
               action = trapAttr.split("action='")[1].split("'")[0];
             }
           }
+          assert value != null;
           Decompilation dec = new Decompilation(Long.decode(value), compileId, kind, reason, action);
           docompilations.add(dec);          
         }

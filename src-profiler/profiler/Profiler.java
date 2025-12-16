@@ -19,7 +19,7 @@ public class Profiler{
     private final static long beginning;
     private final static long start;
     private static long id = 0;
-    public final static long length = 3*512*1024;
+    public final static long length = 4*512*1024;
     private final static ConcurrentHashMap<String, Long> classNameToId = new ConcurrentHashMap<>();
     private static final AtomicInteger nextAvailableFileNumber = new AtomicInteger();
 
@@ -62,28 +62,19 @@ public class Profiler{
       return null;
     }
 
-    public static int putInfo(MappedByteBuffer mb, int index, long callsite, Object obj, int cid){
+    public static int putInfo(MappedByteBuffer mb, int index, long callsite, Object obj, int cid, String methodImplementor){
       long time = System.nanoTime();
       long timeDiff = (time - Profiler.beginning)/1000;
       String targetClassName = obj.getClass().getName();
-      long tid = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);
+      long classId = classNameToId.computeIfAbsent(targetClassName, (k) -> id++);
+      long methodImpId = classNameToId.computeIfAbsent(methodImplementor, k -> id++);
 
-      long val = ((callsite) << 32) | (tid & 0xffffffffL);
+      long val = ((callsite) << 32) | (classId & 0xffffffffL);
       mb.putLong(cid);
       mb.putLong(val);
-      // mb.putInt((int) (callsite & 0xFFFFFFFFL));
-      // mb.putInt((int) (tid & 0xFFFFFFFFL));
+      mb.putLong(methodImpId);
       mb.putLong(timeDiff);
-      // long a = 1l;
-      // long b = 2l;
-      // long c = 3l;
-
-      // mb.putInt((int) (a & 0xFFFFFFFFL));
-      // mb.putInt((int) (b & 0xFFFFFFFFL));
-      // mb.putLong(c);
-
-      return index+3;
-
+      return index+4;
     }
 
     private static void saveClassNameMapping(){

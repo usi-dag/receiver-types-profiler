@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -49,7 +50,7 @@ class FilePartitioner {
         */
         int numberOfPartitions = 4;
         List<List<File>> partitions = partitionFileList(partials, numberOfPartitions);
-        List<Integer> threadFinished = Arrays.asList(0, 0, 0, 0);
+        List<Integer> threadFinished= new ArrayList<>(Collections.nCopies(numberOfPartitions, 0));
         List<Thread> threads = new ArrayList<>();
         int i = 0;
         for (List<File> binaryFiles : partitions) {
@@ -108,7 +109,7 @@ class FilePartitioner {
             int readBytes = 0;
             try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(binaryFile.toString()))) {
                 final int bufferSize = 144*1024*1024;
-                final int bytesPerDataPoint = 24;
+                final int bytesPerDataPoint = 32;
                 byte[] bytes = new byte[bufferSize];
                 int len;
                 outer:
@@ -118,16 +119,17 @@ class FilePartitioner {
                         long packedLong = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i+8, i+16)).getLong();
                         long callsiteId = packedLong >> 32;
                         long classNameId = packedLong & 0xffffffffL;
-                        long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 16, i + 24)).getLong();
+                        long methodImp = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 16, i + 24)).getLong();
+                        long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 24, i + 32)).getLong();
                         if (compileId == 0 && callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
                             break outer;
                         }
                         long m = callsiteId % 1000;
-                        List<Byte> toAdd = new ArrayList<>();
+                        List<Byte> toAdd = fileIdToBytes.computeIfAbsent(m, k -> new ArrayList<>());
                         for (byte b : Arrays.copyOfRange(bytes, i, i + bytesPerDataPoint)) {
                             toAdd.add(b);
                         }
-                        fileIdToBytes.computeIfAbsent(m, k -> new ArrayList<>()).addAll(toAdd);
+                        // fileIdToBytes.computeIfAbsent(m, k -> new ArrayList<>()).addAll(toAdd);
                         readBytes += bytesPerDataPoint;
                         if (readBytes >= bufferSize) {
                             dumpBytesToFile(intermediateFolder, fileIdToBytes);

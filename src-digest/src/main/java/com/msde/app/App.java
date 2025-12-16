@@ -10,7 +10,6 @@ import java.nio.file.Files;
 import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.function.BiPredicate;
 
 
 /**
@@ -41,7 +40,7 @@ public class App {
                     
                 }
                 case "--threads", "-t" -> {
-                    int nThreads = Integer.valueOf(args[i++]);
+                    int nThreads = Integer.parseInt(args[i++]);
                     parsedArgs = new Args(parsedArgs.inputFolder, parsedArgs.delta, parsedArgs.compilerLog, nThreads);
                     
                 }
@@ -152,14 +151,22 @@ public class App {
         String callsiteFileNumber = cf.getName().replace("callsite_", "").replace(".txt", "");
         File resFile = new File(resultFolder, String.format("result_%03d.txt", Integer.parseInt(callsiteFileNumber)));
         if (resFile.exists()) {
-            resFile.delete();
+            boolean vasDeleted = resFile.delete();
+            if(!vasDeleted){
+                System.err.println("Couldn't delete file: " + resFile.getAbsolutePath());
+                return true;
+            }
         }
 
         List<StabilityData> stabilities = new ArrayList<>();
 
         File stabilityFile = new File(resultFolder, String.format("stability_%03d.txt", Integer.parseInt(callsiteFileNumber)));
         if(stabilityFile.exists()){
-            stabilityFile.delete();
+            boolean vasDeleted = stabilityFile.delete();
+            if(!vasDeleted){
+                System.err.println("Couldn't delete file: " + stabilityFile.getAbsolutePath());
+                return true;
+            }
         }
 
         Map<Pair<Long, Long>, Map<Long, LongList>> callsiteInfo = reconstructCallsiteInfo(info, idToClassName);
@@ -207,37 +214,31 @@ public class App {
     }
 
     public record Pair<T, P>(T first, P second) {}
-    public record Triplet<T, P, U>(T first, P second, U third) {}
 
     private static Optional<LongList> readBinary(File binaryFile) {
         try {
             // byte[] bytes = Files.readAllBytes(binaryFile.toPath());
-            ByteBuffer.allocate(Long.BYTES).getLong();
             LongList l = new LongList();
+            final int bufferSize = 64*1024*1024;
+            final int bytesPerDataPoint = 32;
             try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(binaryFile.toPath().toString()))) {
-                byte[] bytes = new byte[144*1024*1024];
+                byte[] bytes = new byte[bufferSize];
                 int len;
                 outer: while ((len = in.read(bytes)) != -1) {
-                    for(int i=0; i<len; i+= 24){
+                    for(int i=0; i<len; i+= bytesPerDataPoint){
                         long compileId = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i, i + 8)).getLong();
-                        byte[] cs = new byte[8];
-                        cs[4] = bytes[i + 8];
-                        cs[5] = bytes[i + 8 + 1];
-                        cs[6] = bytes[i + 8 + 2];
-                        cs[7] = bytes[i + 8 + 3];
-                        long callsiteId = ByteBuffer.wrap(cs).getLong();
-                        cs[4] = bytes[i +8 + 4];
-                        cs[5] = bytes[i +8 + 5];
-                        cs[6] = bytes[i +8 + 6];
-                        cs[7] = bytes[i +8 + 7];
-                        long classNameId = ByteBuffer.wrap(cs).getLong();
-                        long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 16, i + 24)).getLong();
+                        long packedLong = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i+8, i+16)).getLong();
+                        long callsiteId = packedLong >> 32;
+                        long classNameId = packedLong & 0xffffffffL;
+                        long methodImp = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 16, i + 24)).getLong();
+                        long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 24, i + 32)).getLong();
                         if (compileId == 0 && callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
                           break outer;
                         }
                         l.add(callsiteId);
                         l.add(compileId);
                         l.add(classNameId);
+                        l.add(methodImp);
                         l.add(timeDiff);
                     }
                 }
@@ -259,18 +260,19 @@ public class App {
         NOTE: it might be better to keep the classids instead of getting the actual classnames to save ram.
         **/
         Map<Pair<Long, Long>, Map<Long, LongList>> callsiteToInfo = new HashMap<>();
-        for (int i = 0; i < info.size(); i += 4) {
+        for (int i = 0; i < info.size(); i += 5) {
             long csid = info.get(i);
             long compile_id = info.get(i+1);
             long cnid = info.get(i + 2);
-            long timediff = info.get(i + 3);
-            String className = idToClassName.get(cnid);
+            long methodImpId = info.get(i+3);
+            long timediff = info.get(i + 4);
+            String className = idToClassName.get(methodImpId);
             if(className == null){
-                System.out.printf("WARNING: ---------------- cnid is: %d%n", cnid);
+                System.out.printf("WARNING: ---------------- class couldn't be resolved: %d%n", methodImpId);
                 continue;
             }
-            Pair<Long, Long> ccu = new Pair<Long,Long>(csid, compile_id);
-            callsiteToInfo.computeIfAbsent(ccu, k -> new HashMap<>()).computeIfAbsent(cnid, k -> new LongList()).add(timediff);
+            Pair<Long, Long> ccu = new Pair<>(csid, compile_id);
+            callsiteToInfo.computeIfAbsent(ccu, k -> new HashMap<>()).computeIfAbsent(methodImpId, k -> new LongList()).add(timediff);
         }
         return callsiteToInfo;
     }
@@ -478,13 +480,9 @@ public class App {
             boolean w1Empty = w1.values().stream().mapToDouble(e->e).sum() == 0.0;
             boolean w2Empty = w2.values().stream().mapToDouble(e->e).sum() == 0.0;
             Long[] keys = w1.keySet().toArray(Long[]::new);
-            Long[] keysSorted1 = Arrays.stream(keys).filter(k->w1.get(k)!=0).sorted((k1, k2) -> {
-                return Double.compare(w1.get(k2), w1.get(k1));
-            }).toArray(Long[]::new);
+            Long[] keysSorted1 = Arrays.stream(keys).filter(k->w1.get(k)!=0).sorted((k1, k2) -> Double.compare(w1.get(k2), w1.get(k1))).toArray(Long[]::new);
 
-            Long[] keysSorted2 = Arrays.stream(keys).filter(k-> w2.get(k)!=0).sorted((k1, k2) -> {
-                return Double.compare(w2.get(k2), w2.get(k1));
-            }).toArray(Long[]::new);
+            Long[] keysSorted2 = Arrays.stream(keys).filter(k-> w2.get(k)!=0).sorted((k1, k2) -> Double.compare(w2.get(k2), w2.get(k1))).toArray(Long[]::new);
 
             if (compIter < compilationTasks.size() &&
                     firstWindowStartTime + i * window / 1000 > startTime + compilationTasks.get(compIter).time()/1000) {
@@ -503,9 +501,7 @@ public class App {
             if(w1Empty){
                 if(!lastValidWindow.isEmpty()){
                     Map<Long, Double> lv = lastValidWindow.get();
-                    Long[] keysSortedLV = Arrays.stream(keys).filter(k-> lv.get(k)!=0).sorted((k1, k2) -> {
-                        return Double.compare(lv.get(k2), lv.get(k1));
-                    }).toArray(Long[]::new);
+                    Long[] keysSortedLV = Arrays.stream(keys).filter(k-> lv.get(k)!=0).sorted((k1, k2) -> Double.compare(lv.get(k2), lv.get(k1))).toArray(Long[]::new);
                     if(!compareRanking(keysSortedLV, keysSorted2)){
                         inversions.add(new Inversion(offset+i, offset+i + 1, lv, w2, idToName));
                     }
@@ -545,7 +541,7 @@ public class App {
                     .collect(Collectors.joining(",", "[", "]"));
                 String decompilation = p.decomps.stream()
                     .map(d -> {
-                        String trap = "";
+                        String trap;
                         if (d.reason() != null || d.action() != null) {
                           trap = String.format(" %s %s", d.reason(), d.action());
                         }else{

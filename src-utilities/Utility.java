@@ -5,20 +5,13 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.StandardOpenOption;
-import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
-import java.util.HashMap;
 
 public class Utility {
   record Args(File binaryFile, File callsiteId, File classId, File inputFolder) {
@@ -102,6 +95,7 @@ public class Utility {
       if (!outputFolder.exists()) {
         outputFolder.mkdir();
       }
+      ExecutorService pool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
       for (File callsiteFile : callsites) {
         String callsiteFileNumber = callsiteFile.getName().replace("callsite_", "").replace(".txt", "");
         File output = new File(outputFolder, String.format("readable_%s.txt", callsiteFileNumber));
@@ -110,8 +104,9 @@ public class Utility {
         } catch (IOException e) {
           System.err.println(e.getMessage());
         }
-        binaryToReadable(callsiteFile, idToCallsite, idToClassname, output);
+        pool.submit(() -> binaryToReadable(callsiteFile, idToCallsite, idToClassname, output));
       }
+      pool.shutdown();
     }
   }
 
@@ -134,7 +129,7 @@ public class Utility {
       List<String> info = new ArrayList<>();
       try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(callsite.toString()))) {
         final int bufferSize = 144 * 1024 * 1024;
-        final int bytesPerDataPoint = 24;
+        final int bytesPerDataPoint = 32;
 
         byte[] bytes = new byte[bufferSize];
         int len;
@@ -144,7 +139,8 @@ public class Utility {
             long packedLong = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 8, i + 16)).getLong();
             long callsiteId = packedLong >> 32;
             long classNameId = packedLong & 0xffffffffL;
-            long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 16, i + 24)).getLong();
+            long methodImpId = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 16, i + 24)).getLong();
+            long timeDiff = ByteBuffer.wrap(Arrays.copyOfRange(bytes, i + 24, i + 32)).getLong();
             if (callsiteId == 0 && classNameId == 0 && timeDiff == 0) {
               break outer;
             }
@@ -152,13 +148,14 @@ public class Utility {
             info.add(idToCallsite.get(callsiteId));
             info.add(Long.toString(compileId));
             info.add(idToClassname.get(classNameId));
+            info.add(idToClassname.get(methodImpId));
             info.add(String.valueOf(timeDiff));
             readBytes += bytesPerDataPoint;
             if (readBytes >= bufferSize) {
               StringBuilder sb = new StringBuilder();
-              for (int j = 0; j < info.size(); j += 4) {
+              for (int j = 0; j < info.size(); j += 5) {
                 sb.append(
-                    String.format("%s %s %s %s\n", info.get(j), info.get(j + 1), info.get(j + 2), info.get(j + 3)));
+                    String.format("%s %s %s %s %s\n", info.get(j), info.get(j + 1), info.get(j + 2), info.get(j + 3), info.get(j+4)));
               }
               Files.writeString(output.toPath(), sb, StandardOpenOption.APPEND);
             }
@@ -166,8 +163,8 @@ public class Utility {
         }
       }
       StringBuilder sb = new StringBuilder();
-      for (int j = 0; j < info.size(); j += 4) {
-        sb.append(String.format("%s %s %s %s\n", info.get(j), info.get(j + 1), info.get(j + 2), info.get(j + 3)));
+      for (int j = 0; j < info.size(); j += 5) {
+        sb.append(String.format("%s %s %s %s %s\n", info.get(j), info.get(j + 1), info.get(j + 2), info.get(j + 3), info.get(j+4)));
       }
       Files.writeString(output.toPath(), sb, StandardOpenOption.APPEND);
     } catch (IOException e) {
